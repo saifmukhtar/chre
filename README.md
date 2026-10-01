@@ -1,21 +1,94 @@
-# CHRE: Causal Hypergraph Rewrite Engine
+# CHRE: Computational Hypergraph Rewrite Engine
 
-**CHRE** (formerly known as `hcsn-rust`) is a high-performance, general-purpose topological rewrite engine. 
+[![PyPI version](https://badge.fury.io/py/chre.svg)](https://badge.fury.io/py/chre)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Originally built as a physics simulator for modeling relativistic emergence and causal set theory, the core engine has been fully decoupled from theoretical physics. It now serves as a universal, high-speed backend for Artificial Intelligence, complex systems, and network topology research.
+**CHRE** is a blazing-fast, purely mathematical Graph Grammar execution engine. It allows you to define structural rewrite rules (topological grammars) and evolve complex hypergraphs over hundreds of thousands of steps in mere seconds.
 
-## The Architecture
-Simulating large-scale hypergraphs usually crashes computers due to combinatorial explosion. CHRE solves this by handling all heavy topological graph rewriting, parallel processing, and causal memory mapping (using heavily optimized bitsets to track causal futures and pasts) natively in **Rust**.
+Written entirely in **Rust** for maximum performance and exposed effortlessly to Python via **PyO3**, CHRE handles the NP-Complete problem of Subgraph Isomorphism (using an optimized VF2 algorithm) and applies Double-Pushout (DPO) graph rewriting at native speeds.
 
-## The Python API (The "Black Box")
-CHRE is designed to act as a "Black Box" engine for Python developers. You do not need to know Rust to use it. 
+---
 
-Through `PyO3`, CHRE compiles directly into a native Python module. This allows researchers to:
-1. Simply import the engine (`import chre`).
-2. Define custom hypergraph rules, parameters, and AI configurations dynamically in Python.
-3. Pass control to the engine, which executes hundreds of thousands of simulation steps at native Rust speeds before returning the data to Python.
+## 🚀 Installation
 
-## Use Cases
-- **Causal AI:** Generate and track massively complex Directed Acyclic Graphs (DAGs) for causality research.
-- **Dynamic Neural Architecture (Neuroevolution):** Use hypergraph rewriting rules to organically "grow" and restructure neural networks during training.
-- **Higher-Order Information Networks:** Simulate how data propagates through dynamic P2P swarms and social topologies without relying on global state.
+CHRE is distributed as pre-compiled Python wheels via PyPI. You do not need to install Rust or compile anything.
+
+```bash
+pip install chre
+```
+
+---
+
+## 🧠 How it Works
+CHRE is a strict, rule-based topological engine.
+1. **Define a Rule:** Provide a Left-Hand Side (what shape to look for) and a Right-Hand Side (what to replace it with).
+2. **Matcher:** The Rust engine rapidly scans the hypergraph for perfect topological isomorphisms.
+3. **Executor:** The engine safely executes the rewrite, cleans up dangling edges, and spawns new vertices.
+
+---
+
+## 💻 Quickstart (Python)
+
+You can orchestrate the entire universe directly from Python.
+
+```python
+import chre
+
+# 1. Initialize the Engine
+engine = chre.Engine()
+engine.set_verbose(True)
+engine.set_print_interval(50000)
+
+# 2. Add Rules (Spontaneous Creation)
+# LHS: [] -> Empty space
+# RHS: [["A", "B"]] -> Creates two nodes connected by one edge
+engine.add_rule(lhs=[], kept=[], rhs=[["A", "B"]], weight=1.0)
+
+# 3. Add Rules (Triangle Expansion)
+# LHS: [["A", "B"]] -> Finds an existing edge
+# RHS: [["A", "B"], ["B", "C"], ["C", "A"]] -> Spawns node C and creates a triangle
+engine.add_rule(
+    lhs=[["A", "B"]], 
+    kept=["A", "B"], 
+    rhs=[["A", "B"], ["B", "C"], ["C", "A"]], 
+    weight=1.0
+)
+
+# 4. Evolve the Universe!
+print("Running 100,000 steps...")
+engine.run(100_000)
+
+# 5. Extract Analytics natively into Python
+print(f"Total Nodes: {engine.node_count()}")
+print(f"Total Edges: {engine.edge_count()}")
+
+# Pull the raw graph data for NetworkX or visualization
+edges = engine.get_edges()
+degrees = engine.get_degree_map()
+```
+
+---
+
+## ⚡ Advanced Configuration & Analytics
+
+Because Python orchestration crosses the FFI boundary seamlessly, you can dynamically configure the engine and pull heavy topological analytics directly from the Rust backend.
+
+```python
+# Memory Pre-allocation (Optimizes RAM for massive graphs)
+engine.set_bitset_capacity(1_000_000)
+
+# Causal Horizon Limits (For directional flow mapping)
+engine.set_causal_horizon(10)
+
+# Topological Analytics (Calculated instantly in Rust)
+isolated_nodes = engine.get_isolated_vertices()
+edge_sizes = engine.get_edge_size_map()
+
+# Calculate emergent geometric distance (Shortest Path)
+dist = engine.get_shortest_path_distance(node_start=0, node_target=45)
+```
+
+---
+
+## 📜 License
+This project is licensed under the **Apache License 2.0**.
