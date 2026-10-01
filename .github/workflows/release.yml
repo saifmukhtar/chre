@@ -1,0 +1,40 @@
+name: Build and Publish CHRE
+
+on:
+  push:
+    tags:
+      - 'v*' # Triggers workflow when you push a tag like "v0.1.0"
+
+jobs:
+  build-and-release:
+    name: Build Linux Wheels (Ubuntu 22.04)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build Wheels using Maturin
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release --out dist -i python3.11
+          
+      - name: Upload Wheels to GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*.whl
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
