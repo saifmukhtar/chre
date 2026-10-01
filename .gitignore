@@ -3,4 +3,5 @@
 Cargo.lock
 exports/
 chre.so
-test_engine.py
+__pycache__/
+*.pyc
