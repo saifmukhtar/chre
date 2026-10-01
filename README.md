@@ -1,4 +1,4 @@
-# CHRE: Computational Hypergraph Rewrite Engine
+# CHRE: Causal Hypergraph Rewrite Engine
 
 [![PyPI version](https://badge.fury.io/py/chre.svg)](https://badge.fury.io/py/chre)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
