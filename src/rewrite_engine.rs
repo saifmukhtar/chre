@@ -10,8 +10,8 @@ use crate::observables::{
     component_radius, compute_coherence_raw, detect_candidate_knot_neighborhoods,
     InteractionEvent, TopologicalKnot,
 };
-use crate::physics_params::PhysicsParams;
-use crate::rules::{edge_creation_rule, UndoRecord};
+use crate::engine_params::EngineParams;
+use crate::rules::UndoRecord;
 
 #[derive(serde::Serialize, Clone)]
 pub struct DefectLogEntry {
@@ -44,6 +44,7 @@ pub enum EmergenceMode {
 
 pub struct RewriteEngine {
     pub h: Hypergraph,
+    pub grammar_rules: Vec<crate::grammar::RewriteRule>,
     pub p_create: f64,
     pub p_fusion: f64,
     pub mode: EmergenceMode,
@@ -53,7 +54,7 @@ pub struct RewriteEngine {
     pub gamma_time: f64,
     pub gamma_ext: f64,
     pub epsilon_label_violation: f64,
-    pub params: PhysicsParams,
+    pub params: EngineParams,
 
     // ξ field
     pub xi: HashMap<u64, f64>,
@@ -118,13 +119,15 @@ pub struct RewriteEngine {
 pub struct EngineConfig {
     pub p_create: f64,
     pub p_fusion: Option<f64>,
-    pub gamma_defect: Option<f64>,
-    pub inertia_scale: Option<f64>,
-    pub interaction_boost: Option<f64>,
-    pub stability_decay: Option<f64>,
-    pub nonlinear_coupling: Option<f64>,
+    pub topology_mutation_rate: Option<f64>,
+    pub causal_inertia_scale: Option<f64>,
+    pub hyperedge_boost: Option<f64>,
+    pub state_decay_rate: Option<f64>,
+    pub network_coupling: Option<f64>,
     pub memory_coupling: Option<f64>,
-    pub defect_injection: Option<f64>,
+    pub random_injection_rate: Option<f64>,
+    pub causal_horizon: Option<usize>,
+    pub initial_bitset_capacity: Option<usize>,
     pub disable_patches: bool,
     pub seed: Option<u64>,
     pub track_interval: Option<usize>,
@@ -135,13 +138,15 @@ impl Default for EngineConfig {
         Self {
             p_create: 0.64,
             p_fusion: None,
-            gamma_defect: None,
-            inertia_scale: None,
-            interaction_boost: None,
-            stability_decay: None,
-            nonlinear_coupling: None,
+            topology_mutation_rate: None,
+            causal_inertia_scale: None,
+            hyperedge_boost: None,
+            state_decay_rate: None,
+            network_coupling: None,
             memory_coupling: None,
-            defect_injection: None,
+            random_injection_rate: None,
+            causal_horizon: None,
+            initial_bitset_capacity: None,
             disable_patches: false,
             seed: None,
             track_interval: None,
@@ -180,17 +185,22 @@ impl RewriteEngine {
             None => SmallRng::from_entropy(),
         };
 
-        let mut physics_params = PhysicsParams::new();
-        physics_params.apply_overrides(&config);
+        let mut engine_params = EngineParams::new();
+        engine_params.apply_overrides(&config);
+
+        let mut h = h;
+        h.causal_horizon = engine_params.causal_horizon;
+        h.initial_bitset_capacity = engine_params.initial_bitset_capacity;
 
         Self {
             h,
+            grammar_rules: Vec::new(),
             p_create: config.p_create,
             p_fusion: config.p_fusion.unwrap_or(0.10), // Reverted default to stable 10%
             gamma_time: 0.1,
             gamma_ext: 0.05,
             epsilon_label_violation: 0.08,
-            params: physics_params,
+            params: engine_params,
             mode: EmergenceMode::Assisted, // Default to v5.1 Honest Assisted
 
             xi: HashMap::new(),
@@ -257,14 +267,13 @@ impl RewriteEngine {
         if let Some(ref undo) = undo_opt {
             self.last_rewrite = Some(undo.clone());
             
-            // SCRUBBING: Remove deleted vertex from auxiliary maps
-            if let Some(ref v_removed) = undo.removed_vertex {
-                let vid = v_removed.id;
-                self.stability.remove(&vid);
-                self.xi.remove(&vid);
-                self.prev_xi.remove(&vid);
-                self.coupling_intensity.remove(&vid);
-                self.momentum_reservoir.remove(&vid);
+            // SCRUBBING: Remove deleted vertices from auxiliary maps
+            for vid in undo.removed_vertices.keys() {
+                self.stability.remove(vid);
+                self.xi.remove(vid);
+                self.prev_xi.remove(vid);
+                self.coupling_intensity.remove(vid);
+                self.momentum_reservoir.remove(vid);
             }
 
             self.rewrite_history.push(undo.clone());
@@ -443,7 +452,7 @@ impl RewriteEngine {
                     let mut dv = (p2 - p1) / dt;
 
                     // Hypothesis B: Exponential Inertia (Inertial Cooling v5.0)
-                    if self.params.enable_conservation_patches
+                    if self.params.enforce_strict_topology
                         && (self.conservation_mode == ConservationMode::StabilityScaled
                             || self.conservation_mode == ConservationMode::Hybrid)
                     {
@@ -482,7 +491,7 @@ impl RewriteEngine {
         }
 
         // --- Hypothesis D: Mass Coupling (Soft Newtonian) ---
-        if self.params.enable_conservation_patches
+        if self.params.enforce_strict_topology
             && self.conservation_mode == ConservationMode::MassCoupled
         {
             for knot in self.active_knots.values_mut() {
@@ -495,7 +504,7 @@ impl RewriteEngine {
         }
 
         // --- Hypothesis C: Local Flux Compensation (Residual Field) ---
-        if self.params.enable_conservation_patches
+        if self.params.enforce_strict_topology
             && (self.conservation_mode == ConservationMode::FluxCompensated
                 || self.conservation_mode == ConservationMode::Hybrid)
         {
@@ -690,7 +699,7 @@ impl RewriteEngine {
         }
 
         // --- Hypothesis A: Pairwise Symmetry (Symmetric Correction) ---
-        if self.params.enable_conservation_patches
+        if self.params.enforce_strict_topology
             && (self.conservation_mode == ConservationMode::Pairwise
                 || self.conservation_mode == ConservationMode::Hybrid)
         {
@@ -712,7 +721,7 @@ impl RewriteEngine {
                         let s_avg = (event.pre_a.5 + event.pre_b.5) / 2.0;
 
                         // k ramps non-linearly with gamma. Physics sharpens as S -> 20.0
-                        let k = (s_avg / 20.0).powf(self.params.nonlinear_coupling).min(1.0);
+                        let k = (s_avg / 20.0).powf(self.params.network_coupling).min(1.0);
 
                         let correction = -k * 0.5 * delta_total;
                         // Guard: only apply correction if finite (safety net for edge cases)
@@ -830,11 +839,11 @@ impl RewriteEngine {
     /// All stability values decay slowly each cycle.
     fn update_stability(&mut self) {
         // (1) Stability Decay (nu)
-        let stability_decay = self.params.stability_decay;
+        let state_decay_rate = self.params.state_decay_rate;
 
         // Decay all existing stability
         for val in self.stability.values_mut() {
-            *val *= stability_decay;
+            *val *= state_decay_rate;
         }
 
         // Accumulate stability for vertices in active knots
@@ -867,126 +876,29 @@ impl RewriteEngine {
 
         self.attempted_rewrites += 1;
 
-        if self.h.vertices.is_empty() {
+        if self.grammar_rules.is_empty() {
             return None;
         }
 
-        // --- Rejection Sampling (True O(1) Amortized) ---
-        // Instead of collecting keys into a Vec (O(V)), we guess a random ID 
-        // in the current range and check for existence. Since HCSN graphs are 
-        // relatively dense, this hits almost instantly with zero allocation.
-        let max_id = self.h.max_vertex_id();
-        let anchor_v = loop {
-            let guess = rng.gen_range(0..max_id);
-            if self.h.vertices.contains_key(&guess) {
-                break guess;
+        // --- Fast Random Anchor Selection (O(1) Amortized) ---
+        let anchor_v = if self.h.vertices.is_empty() {
+            0 // Dummy anchor for spontaneous creation rules (LHS is empty)
+        } else {
+            let max_id = self.h.max_vertex_id();
+            loop {
+                let guess = rng.gen_range(0..max_id);
+                if self.h.vertices.contains_key(&guess) {
+                    break guess;
+                }
             }
         };
 
-        // --- Pure Mode Bypass ---
-        if self.pure_mode {
-            let total_p = self.p_create + self.p_fusion;
-            if rng.gen::<f64>() * total_p < self.p_create {
-                return crate::rules::edge_creation_rule(
-                    &mut self.h,
-                    Some(anchor_v),
-                    self.p_create,
-                );
-            } else {
-                return crate::rules::vertex_fusion_rule(&mut self.h, Some(anchor_v));
+        // --- Pure Grammar Execution ---
+        use rand::seq::SliceRandom;
+        if let Some(rule) = self.grammar_rules.choose(rng) {
+            if let Some(match_state) = rule.find_match(&self.h, anchor_v) {
+                return Some(rule.apply_match(&mut self.h, match_state));
             }
-        }
-
-        // --- Phase 1: Fast Density Suppression (O(1)) ---
-        let clustering = crate::observables::local_clustering(&self.h, anchor_v);
-        let degree = self.h.structural_neighbors(anchor_v).len() as f64;
-        let avg_degree = if self.h.vertices.is_empty() {
-            1.0
-        } else {
-            (self.h.total_interactions as f64 * 2.0) / (self.h.vertices.len() as f64)
-        }.max(1.0);
-
-        let local_density = clustering * (degree / avg_degree);
-        
-        // Use alpha_base as a fast filter before expensive coherence checks
-        let alpha_base = 1.5;
-        let rewrite_prob_fast = (-(alpha_base * local_density)).exp();
-        
-        if rng.gen::<f64>() > rewrite_prob_fast {
-            self.suppressed_rewrites += 1;
-            return None;
-        }
-
-        // --- Phase 2: Expensive Structural Diagnostics (only for survivors) ---
-        let mut neighborhood = self.h.structural_neighbors(anchor_v);
-        neighborhood.insert(anchor_v);
-
-        let (internal_edges, boundary_edges) = crate::observables::compute_coherence_raw(&neighborhood, &self.h);
-
-        let coherence = if boundary_edges > 0 {
-            internal_edges as f64 / boundary_edges as f64
-        } else if internal_edges > 0 {
-            10.0
-        } else {
-            0.0
-        };
-
-        let lambda = 0.5;
-        let survival_threshold = 1.0;
-        let neighborhood_size = self.h.structural_neighbors(anchor_v).len() + 1;
-
-        let coherence_boost = if neighborhood_size >= 4 && coherence > survival_threshold {
-            lambda * (coherence - survival_threshold)
-        } else {
-            0.0
-        };
-
-        let mu = self.params.memory_coupling;
-        let gamma = self.params.nonlinear_coupling;
-        let stability_cap = 30.0_f64;
-        let vertex_stability = self.stability.get(&anchor_v).copied().unwrap_or(0.0);
-        let normalized_stability = (vertex_stability / stability_cap).min(1.0);
-        let memory_contribution = mu * stability_cap * normalized_stability.powf(gamma);
-
-        let alpha_eff = alpha_base + coherence_boost + memory_contribution;
-        let intensity = self.coupling_intensity.get(&anchor_v).copied().unwrap_or(0.0);
-        let coupling_modifier = 1.0 - 0.8 * intensity;
-        
-        // Final probability check (refined with coherence and memory)
-        let rewrite_prob_refined = (-(alpha_eff * coupling_modifier) * local_density).exp();
-        
-        // Since we already passed rewrite_prob_fast, we only check the delta
-        let p_ratio = rewrite_prob_refined / rewrite_prob_fast;
-        if rng.gen::<f64>() > p_ratio {
-            self.suppressed_rewrites += 1;
-            return None;
-        }
-
-        let theta = 1.3; // Nucleation threshold
-        let beta = 1.5;
-        let growth = if coherence > theta { beta } else { 0.0 };
-
-        // --- (3) Boundary tension: inhibits growth at high boundary ratio ---
-        let boundary_ratio = if coherence > 0.0 {
-            1.0 / coherence
-        } else {
-            10.0
-        };
-        let gamma = 20.0;
-        let boundary_term = 1.0 / (1.0 + gamma * boundary_ratio);
-
-        // --- Full emergence bias ---
-        let growth_bias = 1.0 + growth * boundary_term;
-
-        let p_creation = (0.90 * growth_bias).min(0.99);
-        let p_fusion = (0.05 / growth_bias).min(0.99);
-
-        if rng.gen::<f64>() < p_creation {
-            return crate::rules::edge_creation_rule(&mut self.h, Some(anchor_v), self.p_create);
-        }
-
-        if self.h.vertices.len() > 200 && rng.gen::<f64>() < p_fusion {
-            return crate::rules::vertex_fusion_rule(&mut self.h, Some(anchor_v));
         }
 
         None
@@ -1324,8 +1236,8 @@ impl RewriteEngine {
             for &v in &lr.added_vertices {
                 touched.insert(v);
             }
-            if let Some(v) = &lr.removed_vertex {
-                touched.insert(v.id);
+            for &v_id in lr.removed_vertices.keys() {
+                touched.insert(v_id);
             }
         }
         touched
@@ -1407,48 +1319,6 @@ impl RewriteEngine {
         self.h.execute_undo_record(record);
     }
 
-    // --------------------------------------------------
-    // Forced probes (matter injection)
-    // --------------------------------------------------
-    pub fn force_defect(&mut self, magnitude: f64, max_tries: usize) -> bool {
-        if self.h.vertices.is_empty() {
-            return false;
-        }
-
-        let rng = &mut self.rng;
-        let vertex_ids: Vec<u64> = self.h.vertices.keys().cloned().collect();
-
-        for _ in 0..max_tries {
-            let vid = *vertex_ids.choose(rng).unwrap();
-            let undo = edge_creation_rule(&mut self.h, Some(vid), self.p_create);
-
-            if let Some(u) = undo {
-                *self.xi.entry(vid).or_insert(0.0) += magnitude;
-                self.forced_time = Some(self.time);
-
-                if self.verbose {
-                    println!("[inject] defect at t={} v={}", self.time, vid);
-                }
-
-                // Track rewrite internally
-                self.last_rewrite = Some(UndoRecord {
-                    target: Vec::new(),
-                    added_vertices: u.added_vertices.clone(),
-                    removed_vertex: u.removed_vertex.clone(),
-                    kept_vertex: u.kept_vertex.clone(),
-                    added_edges: Vec::new(),
-                    added_causal: Vec::new(),
-                    removed_edges: HashMap::new(),
-                    old_causal_future: HashMap::new(),
-                    old_causal_past: HashMap::new(),
-                    old_parents: HashMap::new(),
-                    old_children: HashMap::new(),
-                });
-                return true;
-            }
-        }
-        false
-    }
 
     pub fn force_second_proto_object(
         &mut self,
@@ -1572,7 +1442,7 @@ impl RewriteEngine {
         };
 
         let mu = self.params.memory_coupling;
-        let gamma = self.params.nonlinear_coupling;
+        let gamma = self.params.network_coupling;
         let stability_cap = 30.0_f64;
         let mean_stability = if knot.vertices.is_empty() {
             0.0

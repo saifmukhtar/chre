@@ -3,26 +3,26 @@ use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use smallvec::SmallVec;
+
 static VERTEX_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 static EDGE_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug)]
 pub struct Vertex {
     pub id: u64,
-    pub depth: usize, // Worldline (causal) depth
-    pub label: i32,   // topological/charge-like label
+    pub depth: usize, // Causal depth in the DAG
+    pub state: SmallVec<[f64; 4]>, // AI Node Embedding / Feature Vector
     pub parents: Vec<u64>,
     pub children: Vec<u64>,
 }
 
 impl Vertex {
     pub fn new() -> Self {
-        let mut rng = rand::thread_rng();
-        let label = if rng.gen_bool(0.5) { 1 } else { -1 };
         Self {
             id: VERTEX_ID_COUNTER.fetch_add(1, Ordering::SeqCst),
             depth: 1,
-            label,
+            state: SmallVec::new(),
             parents: Vec::new(),
             children: Vec::new(),
         }
@@ -53,7 +53,9 @@ pub struct Hypergraph {
     pub vertex_to_edges: HashMap<u64, Vec<u64>>, // v.id -> list of edge.ids
     pub active_edge_ids: Vec<u64>,               // For O(1) random selection
     pub max_depth: usize,                        // O(1) tracking
-    pub total_interactions: usize,               // Incremental count of structural neighbor pairs
+    pub structural_pair_count: usize,            // Incremental count of structural neighbor pairs
+    pub causal_horizon: usize,                   // Stop BFS propagation after N hops (0 = infinite)
+    pub initial_bitset_capacity: usize,          // Pre-allocation size for causal bitsets
 }
 
 impl Hypergraph {
@@ -66,17 +68,19 @@ impl Hypergraph {
             vertex_to_edges: HashMap::new(),
             active_edge_ids: Vec::new(),
             max_depth: 1,
-            total_interactions: 0,
+            structural_pair_count: 0,
+            causal_horizon: 6,
+            initial_bitset_capacity: 1024,
         }
     }
 
-    fn init_bitset() -> FixedBitSet {
-        FixedBitSet::with_capacity(1024)
+    fn init_bitset(capacity: usize) -> FixedBitSet {
+        FixedBitSet::with_capacity(capacity)
     }
 
-    fn ensure_capacity(bs: &mut FixedBitSet, required_len: usize) {
+    fn ensure_capacity(bs: &mut FixedBitSet, required_len: usize, min_cap: usize) {
         if bs.len() < required_len {
-            let new_cap = required_len.max(1024).next_power_of_two();
+            let new_cap = required_len.max(min_cap).next_power_of_two();
             bs.grow(new_cap);
         }
     }
@@ -86,13 +90,13 @@ impl Hypergraph {
     pub fn add_vertex(&mut self) -> Vertex {
         let v = Vertex::new();
 
-        let mut future = Self::init_bitset();
-        Self::ensure_capacity(&mut future, v.id as usize + 1);
+        let mut future = Self::init_bitset(self.initial_bitset_capacity);
+        Self::ensure_capacity(&mut future, v.id as usize + 1, self.initial_bitset_capacity);
         future.insert(v.id as usize);
         self.causal_future.insert(v.id, future);
 
-        let mut past = Self::init_bitset();
-        Self::ensure_capacity(&mut past, v.id as usize + 1);
+        let mut past = Self::init_bitset(self.initial_bitset_capacity);
+        Self::ensure_capacity(&mut past, v.id as usize + 1, self.initial_bitset_capacity);
         past.insert(v.id as usize);
         self.causal_past.insert(v.id, past);
 
@@ -120,7 +124,7 @@ impl Hypergraph {
 
             for &v2 in &vertices[i + 1..] {
                 if !self.is_structurally_interacting_excluding(v1, v2, edge.id) {
-                    self.total_interactions += 1;
+                    self.structural_pair_count += 1;
                 }
             }
         }
@@ -143,7 +147,7 @@ impl Hypergraph {
 
             for &v2 in &edge.vertices[i + 1..] {
                 if !self.is_structurally_interacting(v1, v2) {
-                    self.total_interactions = self.total_interactions.saturating_sub(1);
+                    self.structural_pair_count = self.structural_pair_count.saturating_sub(1);
                 }
             }
         }
@@ -261,15 +265,16 @@ impl Hypergraph {
         }
 
         let v_depth = self.vertices.get(&v_id).map(|v| v.depth).unwrap_or(1);
-        let horizon = 6; // Axiom 3: Micro-Horizon
+        let horizon = if self.causal_horizon == 0 { usize::MAX } else { self.causal_horizon };
 
         // Pre-fetch bitsets for the update
-        let mut past_u = self.causal_past.get(&u_id).cloned().unwrap_or_else(|| Self::init_bitset());
-        let mut future_v = self.causal_future.get(&v_id).cloned().unwrap_or_else(|| Self::init_bitset());
+        let cap = self.initial_bitset_capacity;
+        let mut past_u = self.causal_past.get(&u_id).cloned().unwrap_or_else(|| Self::init_bitset(cap));
+        let mut future_v = self.causal_future.get(&v_id).cloned().unwrap_or_else(|| Self::init_bitset(cap));
 
         let max_len = past_u.len().max(future_v.len());
-        Self::ensure_capacity(&mut past_u, max_len);
-        Self::ensure_capacity(&mut future_v, max_len);
+        Self::ensure_capacity(&mut past_u, max_len, cap);
+        Self::ensure_capacity(&mut future_v, max_len, cap);
 
         // 1. Update ancestors of U within horizon
         let mut queue = std::collections::VecDeque::new();
@@ -286,7 +291,7 @@ impl Hypergraph {
 
             // Apply bitset update to ancestor
             if let Some(p_future) = self.causal_future.get_mut(&curr_id) {
-                Self::ensure_capacity(p_future, max_len);
+                Self::ensure_capacity(p_future, max_len, cap);
                 p_future.union_with(&future_v);
             }
 
@@ -315,7 +320,7 @@ impl Hypergraph {
 
             // Apply bitset update to descendant
             if let Some(f_past) = self.causal_past.get_mut(&curr_id) {
-                Self::ensure_capacity(f_past, max_len);
+                Self::ensure_capacity(f_past, max_len, cap);
                 f_past.union_with(&past_u);
             }
 
@@ -331,20 +336,21 @@ impl Hypergraph {
         }
     }
     pub fn merge_causal_identity(&mut self, id_keep: u64, id_remove: u64) {
+        let cap = self.initial_bitset_capacity;
         if let (Some(mut f_remove), Some(mut p_remove)) = (
             self.causal_future.get(&id_remove).cloned(),
             self.causal_past.get(&id_remove).cloned(),
         ) {
             if let Some(f_keep) = self.causal_future.get_mut(&id_keep) {
                 let max_len = f_keep.len().max(f_remove.len());
-                Self::ensure_capacity(f_keep, max_len);
-                Self::ensure_capacity(&mut f_remove, max_len);
+                Self::ensure_capacity(f_keep, max_len, cap);
+                Self::ensure_capacity(&mut f_remove, max_len, cap);
                 f_keep.union_with(&f_remove);
             }
             if let Some(p_keep) = self.causal_past.get_mut(&id_keep) {
                 let max_len = p_keep.len().max(p_remove.len());
-                Self::ensure_capacity(p_keep, max_len);
-                Self::ensure_capacity(&mut p_remove, max_len);
+                Self::ensure_capacity(p_keep, max_len, cap);
+                Self::ensure_capacity(&mut p_remove, max_len, cap);
                 p_keep.union_with(&p_remove);
             }
         }
@@ -456,9 +462,9 @@ impl Hypergraph {
             self.remove_hyperedge(*eid);
         }
 
-        // 3. Restore removed vertex
-        if let Some(v) = record.removed_vertex {
-            self.vertices.insert(v.id, v);
+        // 3. Restore removed vertices
+        for (v_id, v) in record.removed_vertices {
+            self.vertices.insert(v_id, v);
         }
 
         // 4. Restore removed edges

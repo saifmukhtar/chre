@@ -1,9 +1,9 @@
 [package]
-name = "hcsn-rust"
+name = "chre"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
-
+license = "Apache-2.0"
+description = "Causal Hypergraph Rewrite Engine (formerly hcsn-rust)"
 
 [dependencies]
 rand = { version = "0.8", features = ["small_rng"] }
@@ -13,35 +13,9 @@ ctrlc = "3.2"
 rayon = "1.7"
 fixedbitset = "0.4"
 chrono = "0.4"
+pyo3 = { version = "0.29", features = ["extension-module"] }
+smallvec = "1.16.2"
 
 [lib]
-name = "hcsn_rust"
-path = "src/lib.rs"
-
-[[bin]]
-name = "run_simulation"
-path = "src/bin/run_simulation.rs"
-
-[[bin]]
-name = "exp_critical_scan"
-path = "src/bin/exp_critical_scan.rs"
-
-[[bin]]
-name = "interaction_experiment"
-path = "src/bin/deprecated_kinematics/interaction_experiment.rs"
-
-[[bin]]
-name = "robustness_pipeline"
-path = "src/bin/robustness_pipeline.rs"
-
-[[bin]]
-name = "pure_emergence_test"
-path = "src/bin/pure_emergence_test.rs"
-
-[[bin]]
-name = "force_law_aggregator"
-path = "src/bin/deprecated_kinematics/force_law_aggregator.rs"
-
-[[bin]]
-name = "force_law_fit"
-path = "src/bin/deprecated_kinematics/force_law_fit.rs"
+name = "chre"
+crate-type = ["cdylib", "rlib"]

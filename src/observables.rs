@@ -287,27 +287,30 @@ pub fn compute_omega_graph(adj: &HashMap<u64, FixedBitSet>) -> f64 {
     }
 }
 
-pub fn label_frustration(h: &Hypergraph) -> usize {
-    let mut mismatches = 0;
+pub fn state_divergence(h: &Hypergraph) -> usize {
+    let mut divergences = 0;
     for edge in h.hyperedges.values() {
-        let mut labels = HashSet::new();
-        for &v_id in &edge.vertices {
+        if edge.vertices.is_empty() { continue; }
+        let first_v = edge.vertices[0];
+        let first_state = h.vertices.get(&first_v).map(|v| v.state.clone()).unwrap_or_default();
+        
+        for &v_id in &edge.vertices[1..] {
             if let Some(v) = h.vertices.get(&v_id) {
-                labels.insert(v.label);
+                if v.state != first_state {
+                    divergences += 1;
+                    break;
+                }
             }
         }
-        if labels.len() > 1 {
-            mismatches += 1;
-        }
     }
-    mismatches
+    divergences
 }
 
-pub fn defect_density(h: &Hypergraph) -> f64 {
+pub fn state_divergence_density(h: &Hypergraph) -> f64 {
     if h.hyperedges.is_empty() {
         return 0.0;
     }
-    label_frustration(h) as f64 / h.hyperedges.len() as f64
+    state_divergence(h) as f64 / h.hyperedges.len() as f64
 }
 
 pub fn local_omega(_h: &Hypergraph, inter: &HashMap<u64, FixedBitSet>, v: u64) -> f64 {

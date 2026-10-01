@@ -1,6 +1,6 @@
-use hcsn_rust::hypergraph::Hypergraph;
-use hcsn_rust::persistence::Persistence;
-use hcsn_rust::rewrite_engine::{ConservationMode, EmergenceMode, RewriteEngine};
+use chre::hypergraph::Hypergraph;
+use chre::persistence::Persistence;
+use chre::rewrite_engine::{ConservationMode, EmergenceMode, RewriteEngine};
 use rayon::prelude::*;
 use std::env;
 use std::io::Write;
@@ -10,11 +10,11 @@ fn main() {
     println!("=== HCSN HYPER-FLOW DUAL-CORE ENTRY POINT (v5.9.1) ===");
 
     // Default Study Parameters
-    let total_steps = env::var("HCSN_STEPS")
+    let total_steps = env::var("CHRE_STEPS")
         .unwrap_or("250000".to_string())
         .parse::<usize>()
         .unwrap_or(250000);
-    let p_create = env::var("HCSN_P_CREATE")
+    let p_create = env::var("CHRE_P_CREATE")
         .unwrap_or("0.58".to_string())
         .parse::<f64>()
         .unwrap_or(0.58);

@@ -1,3 +1,6 @@
 /target/
 **/*.rs.bk
 Cargo.lock
+exports/
+chre.so
+test_engine.py
