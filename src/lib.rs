@@ -1,7 +1,4 @@
 pub mod hypergraph;
-pub mod observables;
-pub mod persistence;
-pub mod engine_params;
 pub mod rewrite_engine;
 pub mod rules;
 pub mod grammar;
