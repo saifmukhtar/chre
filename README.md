@@ -9,6 +9,20 @@ Written entirely in **Rust** for maximum performance and exposed effortlessly to
 
 ---
 
+## 🎯 Is CHRE for you?
+
+If you want to run graph analytics on a static network, use `NetworkX`. 
+If you want to **dynamically evolve a network's topology** using rules, you need CHRE.
+
+CHRE is specifically designed for researchers, data scientists, and physicists who need to simulate:
+* **Emergent Geometries:** (e.g., Wolfram Physics Project models, Causal Set Theory).
+* **Artificial Life & Cellular Automata:** Operating on dynamic graphs instead of rigid 2D grids.
+* **Complex Systems:** Modeling social networks, chemical reaction networks, or distributed systems where the rules of interaction physically change the network's structure.
+
+**Why CHRE?** Standard Python libraries choke when trying to dynamically add/remove thousands of nodes and edges per second while simultaneously solving subgraph isomorphisms. CHRE offloads 100% of the graph matching and memory allocation to Rust, while letting you orchestrate the rules easily in Python.
+
+---
+
 ## 🚀 Installation
 
 CHRE is distributed as pre-compiled Python wheels via PyPI. You do not need to install Rust or compile anything.
@@ -25,6 +39,8 @@ CHRE is a strict, rule-based topological engine.
 2. **Matcher:** The Rust engine rapidly scans the hypergraph for perfect topological isomorphisms.
 3. **Executor:** The engine safely executes the rewrite, cleans up dangling edges, and spawns new vertices.
 
+For a deep dive into how the engine is built, please read [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ---
 
 ## 💻 Quickstart (Python)
@@ -32,39 +48,37 @@ CHRE is a strict, rule-based topological engine.
 You can orchestrate the entire universe directly from Python.
 
 ```python
-import chre
+from chre_api import GraphUniverse, EngineConfig, Rule
 
 # 1. Initialize the Engine
-engine = chre.Engine()
-engine.set_verbose(True)
-engine.set_print_interval(50000)
+config = EngineConfig(verbose=True, print_interval=10000)
+universe = GraphUniverse(config)
 
 # 2. Add Rules (Spontaneous Creation)
 # LHS: [] -> Empty space
 # RHS: [["A", "B"]] -> Creates two nodes connected by one edge
-engine.add_rule(lhs=[], kept=[], rhs=[["A", "B"]], weight=1.0)
+universe.add_rule(Rule(lhs=[], kept=[], rhs=[["A", "B"]], weight=1.0))
 
 # 3. Add Rules (Triangle Expansion)
 # LHS: [["A", "B"]] -> Finds an existing edge
 # RHS: [["A", "B"], ["B", "C"], ["C", "A"]] -> Spawns node C and creates a triangle
-engine.add_rule(
+universe.add_rule(Rule(
     lhs=[["A", "B"]], 
     kept=["A", "B"], 
     rhs=[["A", "B"], ["B", "C"], ["C", "A"]], 
     weight=1.0
-)
+))
 
 # 4. Evolve the Universe!
 print("Running 100,000 steps...")
-engine.run(100_000)
+universe.evolve(100_000)
 
 # 5. Extract Analytics natively into Python
-print(f"Total Nodes: {engine.node_count()}")
-print(f"Total Edges: {engine.edge_count()}")
+print(universe.get_summary())
 
 # Pull the raw graph data for NetworkX or visualization
-edges = engine.get_edges()
-degrees = engine.get_degree_map()
+raw_data = universe.get_raw_topology()
+edges = raw_data["edges"]
 ```
 
 ---
@@ -75,17 +89,17 @@ Because Python orchestration crosses the FFI boundary seamlessly, you can dynami
 
 ```python
 # Memory Pre-allocation (Optimizes RAM for massive graphs)
-engine.set_bitset_capacity(1_000_000)
+config.bitset_capacity = 1_000_000
 
 # Causal Horizon Limits (For directional flow mapping)
-engine.set_causal_horizon(10)
+config.causal_horizon = 10
 
 # Topological Analytics (Calculated instantly in Rust)
-isolated_nodes = engine.get_isolated_vertices()
-edge_sizes = engine.get_edge_size_map()
+isolated_nodes = universe._engine.get_isolated_vertices()
+edge_sizes = universe._engine.get_edge_size_map()
 
 # Calculate emergent geometric distance (Shortest Path)
-dist = engine.get_shortest_path_distance(node_start=0, node_target=45)
+dist = universe._engine.get_shortest_path_distance(node_start=0, node_target=45)
 ```
 
 ---
