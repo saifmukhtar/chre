@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use crate::hypergraph::{Hypergraph, Hyperedge, Vertex};
+use crate::hypergraph::{Hypergraph, Vertex};
 use crate::rules::UndoRecord;
 
 #[derive(Clone, Debug)]

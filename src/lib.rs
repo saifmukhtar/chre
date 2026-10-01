@@ -23,6 +23,26 @@ impl Engine {
         Self { inner }
     }
 
+    /// Sets how often the engine prints progress to the console. Set to 0 to disable.
+    pub fn set_print_interval(&mut self, interval: usize) {
+        self.inner.print_interval = interval;
+    }
+
+    /// Enable or disable verbose console printing
+    pub fn set_verbose(&mut self, verbose: bool) {
+        self.inner.verbose = verbose;
+    }
+
+    /// Sets the causal horizon (max depth for causal BFS). Default is 6.
+    pub fn set_causal_horizon(&mut self, horizon: usize) {
+        self.inner.h.causal_horizon = horizon;
+    }
+
+    /// Sets the initial bitset capacity (memory optimization). Default is 1024.
+    pub fn set_bitset_capacity(&mut self, capacity: usize) {
+        self.inner.h.initial_bitset_capacity = capacity;
+    }
+
     pub fn add_rule(&mut self, lhs: Vec<Vec<String>>, kept: Vec<String>, rhs: Vec<Vec<String>>, weight: f64) {
         let rule = RewriteRule::new(lhs, kept, rhs, weight);
         self.inner.grammar_rules.push(rule);

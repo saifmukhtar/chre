@@ -12,6 +12,7 @@ pub struct RewriteEngine {
     pub rng: SmallRng,
     pub time: usize,
     pub verbose: bool,
+    pub print_interval: usize,
     pub attempted_rewrites: usize,
 }
 
@@ -29,6 +30,7 @@ impl RewriteEngine {
             rng,
             time: 0,
             verbose: false,
+            print_interval: 10000,
             attempted_rewrites: 0,
         }
     }
@@ -36,7 +38,7 @@ impl RewriteEngine {
     pub fn step(&mut self) -> bool {
         self.time += 1;
 
-        if self.time % 10000 == 0 && self.verbose {
+        if self.print_interval > 0 && self.time.is_multiple_of(self.print_interval) && self.verbose {
             println!("Step {}...", self.time);
         }
 
