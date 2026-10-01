@@ -3,7 +3,7 @@ name = "chre"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "Causal Hypergraph Rewrite Engine (formerly hcsn-rust)"
+description = "CHRE: Causal Hypergraph Rewrite Engine"
 
 [dependencies]
 rand = { version = "0.8", features = ["small_rng"] }
