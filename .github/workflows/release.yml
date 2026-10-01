@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*' # Triggers workflow when you push a tag like "v0.1.0"
 
+permissions:
+  contents: write # This fixes the 403 Forbidden error!
+
 jobs:
   build-and-release:
     name: Build Linux Wheels (Ubuntu 22.04)
