@@ -219,32 +219,74 @@ impl RewriteRule {
             // VF2 1-LOOKAHEAD (Frontier Feasibility): Count how many unmapped abstract neighbors
             // the current abstract node still needs. The real candidate must have at least as many
             // neighbors inside T2 (the real frontier) to satisfy those future connections.
-            let unmapped_abstract_neighbors: usize = self.lhs_edges.iter()
+            let unmapped_abstract_neighbors_in_t1: usize = self.lhs_edges.iter()
                 .filter(|edge| edge.contains(&current_abstract_id))
                 .flat_map(|edge| edge.iter())
-                .filter(|&&a_id| a_id != current_abstract_id && !state.mapping.contains_key(&a_id))
+                .filter(|&&a_id| a_id != current_abstract_id
+                    && !state.mapping.contains_key(&a_id)
+                    && state.t1_frontier.contains(&a_id))  // in T1 frontier
                 .collect::<HashSet<_>>()
                 .len();
 
-            if unmapped_abstract_neighbors > 0 {
-                let real_frontier_neighbors: usize = {
-                    let mut count = 0;
+            if unmapped_abstract_neighbors_in_t1 > 0 {
+                let real_t2_neighbors: usize = {
+                    let mut seen = HashSet::new();
                     if let Some(edge_ids) = graph.vertex_to_edges.get(&real_candidate) {
                         for &e_id in edge_ids {
                             if let Some(real_edge) = graph.hyperedges.get(&e_id) {
                                 for &rv in &real_edge.vertices {
-                                    if rv != real_candidate && state.t2_frontier.contains(&rv) {
-                                        count += 1;
-                                        break; // Count each edge once
+                                    if rv != real_candidate
+                                        && !state.used_real_vertices.contains(&rv)
+                                        && state.t2_frontier.contains(&rv)
+                                    {
+                                        seen.insert(rv);
                                     }
                                 }
                             }
                         }
                     }
-                    count
+                    seen.len()
                 };
-                if real_frontier_neighbors < unmapped_abstract_neighbors {
+                if real_t2_neighbors < unmapped_abstract_neighbors_in_t1 {
                     continue; // 1-Lookahead rejection
+                }
+            }
+
+            // VF2 2-LOOKAHEAD (Outside-Frontier Feasibility, Cordella et al. §3.4):
+            // Count abstract neighbors of the current node that are in Ñ1 — not mapped AND not in T1.
+            // Count real neighbors of the candidate that are in Ñ2 — not mapped AND not in T2.
+            // The real Ñ2 count must be >= abstract Ñ1 count. This prunes paths that would require
+            // connecting to deep unexplored regions the real candidate cannot reach.
+            let abstract_n_tilde: usize = self.lhs_edges.iter()
+                .filter(|edge| edge.contains(&current_abstract_id))
+                .flat_map(|edge| edge.iter())
+                .filter(|&&a_id| a_id != current_abstract_id
+                    && !state.mapping.contains_key(&a_id)
+                    && !state.t1_frontier.contains(&a_id)) // outside T1 — in Ñ1
+                .collect::<HashSet<_>>()
+                .len();
+
+            if abstract_n_tilde > 0 {
+                let real_n_tilde: usize = {
+                    let mut seen = HashSet::new();
+                    if let Some(edge_ids) = graph.vertex_to_edges.get(&real_candidate) {
+                        for &e_id in edge_ids {
+                            if let Some(real_edge) = graph.hyperedges.get(&e_id) {
+                                for &rv in &real_edge.vertices {
+                                    if rv != real_candidate
+                                        && !state.used_real_vertices.contains(&rv)
+                                        && !state.t2_frontier.contains(&rv) // outside T2 — in Ñ2
+                                    {
+                                        seen.insert(rv);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    seen.len()
+                };
+                if real_n_tilde < abstract_n_tilde {
+                    continue; // 2-Lookahead rejection
                 }
             }
 
