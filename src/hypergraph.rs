@@ -50,7 +50,8 @@ pub struct Hypergraph {
     pub causal_future: HashMap<u64, FixedBitSet>, // u.id -> J+(u)
     pub causal_past: HashMap<u64, FixedBitSet>,   // u.id -> J-(u)
     pub vertex_to_edges: HashMap<u64, Vec<u64>>, // v.id -> list of edge.ids
-    pub active_edge_ids: Vec<u64>,               // For O(1) random selection
+    pub active_vertex_ids: Vec<u64>,             // For O(1) random anchor selection
+    pub vertex_to_active_index: HashMap<u64, usize>, // Tracks index in active_vertex_ids for O(1) removal
     pub max_depth: usize,                        // O(1) tracking
     pub structural_pair_count: usize,            // Incremental count of structural neighbor pairs
     pub causal_horizon: usize,                   // Stop BFS propagation after N hops (0 = infinite)
@@ -65,7 +66,8 @@ impl Hypergraph {
             causal_future: HashMap::new(),
             causal_past: HashMap::new(),
             vertex_to_edges: HashMap::new(),
-            active_edge_ids: Vec::new(),
+            active_vertex_ids: Vec::new(),
+            vertex_to_active_index: HashMap::new(),
             max_depth: 1,
             structural_pair_count: 0,
             causal_horizon: 6,
@@ -100,6 +102,11 @@ impl Hypergraph {
         self.causal_past.insert(v.id, past);
 
         self.vertices.insert(v.id, v.clone());
+        
+        let active_index = self.active_vertex_ids.len();
+        self.active_vertex_ids.push(v.id);
+        self.vertex_to_active_index.insert(v.id, active_index);
+
         v
     }
 
@@ -112,7 +119,6 @@ impl Hypergraph {
     pub fn add_hyperedge(&mut self, vertices: Vec<u64>) -> Hyperedge {
         let edge = Hyperedge::new(vertices.clone());
         self.hyperedges.insert(edge.id, edge.clone());
-        self.active_edge_ids.push(edge.id);
         
         // Update index and interaction count
         for (i, &v1) in vertices.iter().enumerate() {
@@ -134,11 +140,6 @@ impl Hypergraph {
     pub fn remove_hyperedge(&mut self, edge_id: u64) -> Option<Hyperedge> {
         let edge = self.hyperedges.remove(&edge_id)?;
         
-        // Remove from active_edge_ids index (swap_remove is O(1))
-        if let Some(pos) = self.active_edge_ids.iter().position(|&id| id == edge_id) {
-            self.active_edge_ids.swap_remove(pos);
-        }
-
         for (i, &v1) in edge.vertices.iter().enumerate() {
             if let Some(list) = self.vertex_to_edges.get_mut(&v1) {
                 list.retain(|&id| id != edge_id);
@@ -150,7 +151,6 @@ impl Hypergraph {
                 }
             }
         }
-        self.active_edge_ids.retain(|&id| id != edge_id);
         Some(edge)
     }
 
@@ -368,6 +368,16 @@ impl Hypergraph {
     pub fn remove_vertex(&mut self, v_id: u64) -> Option<Vertex> {
         let v = self.vertices.remove(&v_id)?;
         
+        // Remove from O(1) active tracker
+        if let Some(&index) = self.vertex_to_active_index.get(&v_id) {
+            let last_id = *self.active_vertex_ids.last().unwrap();
+            self.active_vertex_ids.swap_remove(index);
+            if index < self.active_vertex_ids.len() {
+                self.vertex_to_active_index.insert(last_id, index);
+            }
+            self.vertex_to_active_index.remove(&v_id);
+        }
+        
         // Local scrubbing: remove v_id from causal sets of all vertices that could contain it.
         // We use the bitset directly to avoid HashSet allocations.
         if let Some(p_bs) = self.causal_past.get(&v_id) {
@@ -453,6 +463,16 @@ impl Hypergraph {
             self.causal_future.remove(v_id);
             self.causal_past.remove(v_id);
             self.vertex_to_edges.remove(v_id);
+            
+            // Remove from O(1) active tracker
+            if let Some(&index) = self.vertex_to_active_index.get(v_id) {
+                let last_id = *self.active_vertex_ids.last().unwrap();
+                self.active_vertex_ids.swap_remove(index);
+                if index < self.active_vertex_ids.len() {
+                    self.vertex_to_active_index.insert(last_id, index);
+                }
+                self.vertex_to_active_index.remove(v_id);
+            }
         }
 
         // 2. Remove added edges
@@ -464,12 +484,16 @@ impl Hypergraph {
         // 3. Restore removed vertices
         for (v_id, v) in record.removed_vertices {
             self.vertices.insert(v_id, v);
+            
+            // Restore to O(1) active tracker
+            let index = self.active_vertex_ids.len();
+            self.active_vertex_ids.push(v_id);
+            self.vertex_to_active_index.insert(v_id, index);
         }
 
         // 4. Restore removed edges
         for (eid, e) in record.removed_edges {
             self.hyperedges.insert(eid, e.clone());
-            self.active_edge_ids.push(e.id);
             // Restore to index
             for &v in &e.vertices {
                 self.vertex_to_edges.entry(v).or_insert_with(Vec::new).push(eid);

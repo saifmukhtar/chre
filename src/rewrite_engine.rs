@@ -1,6 +1,5 @@
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
-use rand::Rng;
 use rand::SeedableRng;
 
 use crate::hypergraph::Hypergraph;
@@ -58,17 +57,11 @@ impl RewriteEngine {
             return None;
         }
 
-        // --- Fast Random Anchor Selection (O(1) Amortized) ---
-        let anchor_v = if self.h.vertices.is_empty() {
+        // --- True Random Anchor Selection (O(1)) ---
+        let anchor_v = if self.h.active_vertex_ids.is_empty() {
             0 // Dummy anchor for spontaneous creation rules (LHS is empty)
         } else {
-            let max_id = self.h.max_vertex_id();
-            loop {
-                let guess = rng.gen_range(0..max_id);
-                if self.h.vertices.contains_key(&guess) {
-                    break guess;
-                }
-            }
+            *self.h.active_vertex_ids.choose(rng).unwrap_or(&0)
         };
 
         // --- Pure Grammar Execution ---

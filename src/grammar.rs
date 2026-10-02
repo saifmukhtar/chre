@@ -271,9 +271,8 @@ impl RewriteRule {
         for rhs_edge in &self.rhs_edges {
             for &abstract_id in rhs_edge {
                 if !match_state.mapping.contains_key(&abstract_id) {
-                    let new_v = Vertex::new(); // State vector defaults to empty
+                    let new_v = h.add_vertex();
                     let new_id = new_v.id;
-                    h.vertices.insert(new_id, new_v.clone());
                     undo.added_vertices.push(new_id);
                     
                     // Map it so edges can use it instantly!
