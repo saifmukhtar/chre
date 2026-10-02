@@ -34,15 +34,15 @@ pip install chre
 
 ---
 
-## How it works
+## Features & Capabilities
 
-CHRE is a rule-based topological engine. Each step:
-
-1. **Anchor Selection:** A vertex is selected uniformly at random from the active vertex pool in $O(1)$ using a `swap_remove`-backed index.
-2. **Matching:** The engine searches for a subgraph isomorphism between the rule's Left-Hand Side (LHS) and the real graph, using a VF2-based algorithm with T1/T2 frontier tracking and 1-lookahead and 2-lookahead feasibility pruning adapted for hyperedges.
-3. **Execution:** If a match is found, the rule is applied under DPO semantics. The dangling condition is checked: if any vertex being deleted has edges not covered by the LHS match, the rewrite is aborted. Otherwise, LHS edges are deleted, dead vertices are removed, and RHS vertices and edges are created.
-
-For full implementation details, see [ARCHITECTURE.md](ARCHITECTURE.md).
+- **Native Hypergraphs:** Supports generalized $N$-ary edges connecting any number of vertices.
+- **VF2 Matching:** Uses all four Cordella feasibility layers (degree, arity, 1-lookahead, and 2-lookahead) to prune the search tree.
+- **$O(1)$ Sampling:** True uniform random anchor selection using a `swap_remove`-backed contiguous index. No rejection sampling loops.
+- **Named Observables:** Vertices carry physical state (e.g., `mass`, `spin`) directly in Rust memory.
+- **Reversible Computing:** Built-in single-step execution and rollback API for branch-and-bound search.
+- **Weighted Rules:** Rules are selected via discrete probability distributions built directly from user-defined weights.
+- **DPO / SPO Semantics:** Toggle freely between Double-Pushout (strict graph matching) and Single-Pushout (automatic dangling edge cleanup).
 
 ---
 
@@ -54,15 +54,15 @@ from chre_api import GraphUniverse, EngineConfig, Rule
 config = EngineConfig(verbose=True, print_interval=10000)
 universe = GraphUniverse(config)
 
-# Spontaneous creation: empty LHS creates a new edge from nothing
+# 1. Spontaneous creation
 universe.add_rule(Rule(lhs=[], kept=[], rhs=[["A", "B"]], weight=1.0))
 
-# Triangle expansion: finds an edge and adds a new vertex connected to both endpoints
+# 2. Triangle expansion (Heavy weight so it fires more often)
 universe.add_rule(Rule(
     lhs=[["A", "B"]],
     kept=["A", "B"],
     rhs=[["A", "B"], ["B", "C"], ["C", "A"]],
-    weight=1.0
+    weight=5.0
 ))
 
 universe.evolve(100_000)
@@ -71,43 +71,65 @@ print(universe.get_summary())
 
 ---
 
-## Semantics toggle
+## Named Observables (Physical State)
+
+Vertices aren't just empty points; they can hold arbitrary physical state securely inside the engine.
+
+```python
+# Get a vertex ID from the graph
+v_id = universe.get_raw_topology()["vertices"][0]
+
+# Set and get physical variables
+universe.set_observable(v_id, "mass", 1.5)
+universe.set_observable(v_id, "spin", -0.5)
+
+print(universe.get_observable(v_id, "mass"))  # 1.5
+
+# Dump the entire universe's physical state mapping v_id -> {key: val}
+all_state = universe.get_all_observables()
+```
+
+---
+
+## Single-Step & Rollback (Reversible Search)
+
+Instead of blindly running `evolve(n)`, you can run interactively. The engine internally generates `UndoRecord` structs that fully capture topological and causal mutations.
+
+```python
+# Try exactly one rewrite
+fired = universe.step()
+
+if fired:
+    # If we didn't like what that rule did, we can undo it perfectly
+    universe.rollback()
+```
+
+---
+
+## Semantics Toggle
 
 The engine defaults to strict **DPO (Double-Pushout)** semantics. A rewrite is aborted if deleting a vertex would leave dangling edges not covered by the rule's LHS.
 
 To switch to **SPO (Single-Pushout)** semantics — where dangling edges are automatically deleted along with the vertex — call:
 
 ```python
-universe._engine.set_semantics("SPO")
+universe.set_semantics("SPO")
+print(universe.get_semantics())  # "SPO"
 ```
 
 ---
 
-## Configuration
+## Exporters
+
+CHRE graphs can be exported natively to standard visualizers like **Gephi**, **Cytoscape**, or **NetworkX**.
 
 ```python
-config = EngineConfig(
-    verbose=True,
-    print_interval=10000,    # Log progress every N steps
-    bitset_capacity=1024,    # Initial FixedBitSet allocation for causal tracking
-    causal_horizon=6,        # Max BFS depth for causal relation updates
-)
-```
+# Standard JSON format exactly mirroring internal memory
+universe.save_json("simulation.json")
 
----
-
-## Analytics
-
-```python
-summary = universe.get_summary()
-# {"total_vertices": ..., "total_edges": ..., "structural_pairs": ...}
-
-raw = universe.get_raw_topology()
-# {"vertices": [...], "edges": [[...], ...]}
-
-dist = universe._engine.get_shortest_path_distance(node_start=0, node_target=45)
-isolated = universe._engine.get_isolated_vertices()
-edge_sizes = universe._engine.get_edge_size_map()
+# Exports a bipartite graph (Vertices and Hyperedges both act as nodes)
+# This perfectly preserves N-ary hyperedges and Named Observables in Gephi!
+universe.save_graphml("simulation.graphml")
 ```
 
 ---

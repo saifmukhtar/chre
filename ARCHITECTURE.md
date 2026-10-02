@@ -20,6 +20,7 @@ The `Hypergraph` struct is the primary state container.
 
 ### `Vertex`
 Each vertex has a globally unique `u64` ID assigned by an atomic counter (`VERTEX_ID_COUNTER`). Vertices carry:
+- `observables: HashMap<String, f64>` to store physical properties (mass, spin, etc.) directly in Rust memory.
 - `parents: Vec<u64>` and `children: Vec<u64>` for direct causal relations.
 - `causal_past: FixedBitSet` and `causal_future: FixedBitSet` for transitive closure under BFS, bounded by `causal_horizon`.
 
@@ -112,7 +113,7 @@ Once `find_match` yields a valid `MatchState`, `apply_match` mutates the graph u
    For each abstract node that is *not* in `kept_vertices` (i.e., it is deleted by the rule), the engine collects all hyperedges incident to its real mapping. In DPO mode (`strict_dpo = true`), if any such edge is not covered by the LHS match, the rewrite is aborted. In SPO mode, those edges are deleted automatically.  
    After edge cleanup, the vertex is removed via `remove_vertex`, which runs the $O(1)$ `swap_remove` against `active_vertex_ids`.
 
-3. **Causal state backup:** Before deleting a vertex, causal bitsets of the vertex and its neighborhood are saved to the `UndoRecord` for potential rollback.
+3. **Causal state backup:** Before deleting a vertex, causal bitsets of the vertex and its neighborhood are saved to an `UndoRecord` struct for potential rollback.
 
 4. **RHS vertex creation:** Abstract IDs in the RHS that are not yet in `mapping` are instantiated as new vertices via `add_vertex`, which inserts them into `active_vertex_ids`.
 
@@ -127,13 +128,17 @@ Once `find_match` yields a valid `MatchState`, `apply_match` mutates the graph u
 ### Anchor selection
 A live vertex is sampled uniformly in $O(1)$ by calling `active_vertex_ids.choose(rng)`. Because `active_vertex_ids` is maintained as a dense, gap-free pool by the `swap_remove` strategy, every entry is guaranteed to be an active vertex. There is no rejection sampling.
 
-### Step execution
+### Rule selection
+The active rules are sampled from a `WeightedIndex` distribution based on their user-defined `weight` field.
+
+### Step execution & Reversible Computing
 ```
-active_vertex_ids.choose(rng)  →  anchor
-grammar_rules.choose(rng)      →  rule
+active_vertex_ids.choose(rng)               →  anchor
+WeightedIndex::new(&weights).sample(rng)    →  rule
 rule.find_match(graph, anchor, strict_dpo)  →  Option<MatchState>
 rule.apply_match(graph, match_state)        →  UndoRecord
 ```
+Each step generates an `UndoRecord` containing the exact inverse mutations (deleted vertices to restore, created edges to drop). The engine tracks the most recent `UndoRecord` internally. When `rollback()` is called, `execute_undo_record()` reverses the previous step and restores counters perfectly, enabling branch-and-bound exploration directly from Python.
 
 ### Configuration
 | Field | Default | Effect |
@@ -144,16 +149,14 @@ rule.apply_match(graph, match_state)        →  UndoRecord
 
 ---
 
-## 6. FFI Layer (`src/lib.rs`)
+## 6. FFI Layer (`src/lib.rs` & `chre_api.py`)
 
-PyO3 wraps the engine in a `#[pyclass]` struct. All graph computation stays in Rust. Python only sends:
-- Rule definitions (string names, which are converted to integer IDs at construction time)
-- Configuration values
-- Step counts
+PyO3 wraps the engine in a `#[pyclass]` struct, and `chre_api.py` wraps that in a pythonic `GraphUniverse` class. All heavy computation stays in Rust. 
 
-Python only receives:
-- Aggregated summary dicts
-- Raw topology data (serialized on explicit request)
-- Scalar query results (path distances, isolated vertex lists)
+Python only receives data when explicitly calling methods like:
+- `step()`, `rollback()`
+- `get_summary()`
+- `get_raw_topology()`, `get_all_observables()`
+- `save_json()`, `save_graphml()`
 
-The FFI boundary is crossed once per `evolve(n)` call, not once per step.
+The FFI boundary is heavily optimized to keep loop execution entirely in Rust during `evolve(n)` calls.
