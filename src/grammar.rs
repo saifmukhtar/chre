@@ -18,6 +18,9 @@ pub struct RewriteRule {
     
     /// Maps the user's string names ("A", "B") to our internal fast indices (0, 1)
     pub name_map: HashMap<String, usize>,
+    
+    /// The number of unique nodes present in the LHS
+    pub total_lhs_nodes: usize,
 }
 
 impl RewriteRule {
@@ -45,6 +48,8 @@ impl RewriteRule {
             lhs_edges.push(mapped_edge);
         }
 
+        let total_lhs_nodes = next_id;
+
         let mut rhs_edges = Vec::new();
         for edge in rhs_strs {
             let mapped_edge = edge.iter().map(|n| get_or_assign_id(n, &mut name_map, &mut next_id)).collect();
@@ -64,11 +69,12 @@ impl RewriteRule {
             rhs_edges,
             weight,
             name_map,
+            total_lhs_nodes,
         }
     }
 
     /// Attempts to find a true topological match for the LHS in the real hypergraph.
-    pub fn find_match(&self, graph: &Hypergraph, anchor_real: u64) -> Option<MatchState> {
+    pub fn find_match(&self, graph: &Hypergraph, anchor_real: u64, strict_dpo: bool) -> Option<MatchState> {
         // If the rule has no LHS, it's a spontaneous creation rule. Match instantly.
         if self.lhs_edges.is_empty() {
             return Some(MatchState::new());
@@ -80,10 +86,10 @@ impl RewriteRule {
         state.mapping.insert(0, anchor_real);
         state.used_real_vertices.insert(anchor_real);
 
-        let total_abstract_nodes = self.name_map.len();
+        let total_abstract_nodes = self.total_lhs_nodes;
 
         // Start the heavy recursive backtracking algorithm at abstract node 1
-        if self.backtrack_search(1, total_abstract_nodes, &mut state, graph) {
+        if self.backtrack_search(1, total_abstract_nodes, &mut state, graph, strict_dpo) {
             Some(state)
         } else {
             None
@@ -97,9 +103,54 @@ impl RewriteRule {
         total_abstract_nodes: usize,
         state: &mut MatchState,
         graph: &Hypergraph,
+        strict_dpo: bool,
     ) -> bool {
         // 1. BASE CASE: All abstract nodes have been perfectly mapped!
         if current_abstract_id == total_abstract_nodes {
+            if strict_dpo {
+                // Optimize: Only check Dangling Condition if we are actually deleting a mapped node!
+                let mut any_deleted = false;
+                for abstract_id in state.mapping.keys() {
+                    if !self.kept_vertices.contains(abstract_id) {
+                        any_deleted = true;
+                        break;
+                    }
+                }
+
+                if any_deleted {
+                    // Find all real edges exactly matched by the LHS
+                    let mut matched_real_edges = HashSet::new();
+                    for lhs_edge in &self.lhs_edges {
+                        let real_vertices: Vec<u64> = lhs_edge.iter().map(|a_id| *state.mapping.get(a_id).unwrap()).collect();
+                        if let Some(&first_v) = real_vertices.first() {
+                            if let Some(edge_ids) = graph.vertex_to_edges.get(&first_v) {
+                                for &e_id in edge_ids {
+                                    if let Some(real_edge) = graph.hyperedges.get(&e_id) {
+                                        if real_vertices.iter().all(|v| real_edge.vertices.contains(v)) {
+                                            matched_real_edges.insert(e_id);
+                                            break; // Found the mapping for this specific LHS edge
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Check Dangling Condition for deleted nodes
+                    for abstract_id in state.mapping.keys() {
+                        if !self.kept_vertices.contains(abstract_id) {
+                            let real_id = state.mapping[abstract_id];
+                            let incident_edges = graph.edges_containing(real_id);
+                            for eid in incident_edges {
+                                if !matched_real_edges.contains(&eid) {
+                                    // Dangling Condition Violation!
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             return true;
         }
 
@@ -180,7 +231,7 @@ impl RewriteRule {
 
             // 5. RECURSION: If the guess is valid so far, dig deeper!
             if is_valid {
-                if self.backtrack_search(current_abstract_id + 1, total_abstract_nodes, state, graph) {
+                if self.backtrack_search(current_abstract_id + 1, total_abstract_nodes, state, graph, strict_dpo) {
                     return true; // The entire branch succeeded!
                 }
             }

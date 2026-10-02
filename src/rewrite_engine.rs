@@ -13,6 +13,7 @@ pub struct RewriteEngine {
     pub verbose: bool,
     pub print_interval: usize,
     pub attempted_rewrites: usize,
+    pub strict_dpo: bool,
 }
 
 impl RewriteEngine {
@@ -31,6 +32,7 @@ impl RewriteEngine {
             verbose: false,
             print_interval: 10000,
             attempted_rewrites: 0,
+            strict_dpo: true, // Default to strict DPO semantics
         }
     }
 
@@ -66,7 +68,7 @@ impl RewriteEngine {
 
         // --- Pure Grammar Execution ---
         if let Some(rule) = self.grammar_rules.choose(rng) {
-            if let Some(match_state) = rule.find_match(&self.h, anchor_v) {
+            if let Some(match_state) = rule.find_match(&self.h, anchor_v, self.strict_dpo) {
                 return Some(rule.apply_match(&mut self.h, match_state));
             }
         }

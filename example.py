@@ -4,8 +4,8 @@ import json
 # 1. User configures the engine perfectly using a Dataclass
 config = EngineConfig(
     verbose=True,
-    print_interval=50000,   # Print every 50k steps
-    bitset_capacity=500000  # Pre-allocate for a large simulation
+    print_interval=10000,   # Print every 10k steps
+    bitset_capacity=1024    # Pre-allocate a reasonable amount (1024 bits = 128 bytes)
 )
 
 # 2. Initialize the Universe

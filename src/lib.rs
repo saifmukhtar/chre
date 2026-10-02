@@ -43,6 +43,19 @@ impl Engine {
         self.inner.h.initial_bitset_capacity = capacity;
     }
 
+    /// Toggles between SPO (Single-Pushout) and DPO (Double-Pushout) graph rewriting semantics.
+    pub fn set_semantics(&mut self, semantics: &str) {
+        let s = semantics.to_uppercase();
+        if s == "DPO" {
+            self.inner.strict_dpo = true;
+        } else if s == "SPO" {
+            self.inner.strict_dpo = false;
+        } else {
+            println!("Warning: Unknown semantics '{}'. Defaulting to SPO.", semantics);
+            self.inner.strict_dpo = false;
+        }
+    }
+
     pub fn add_rule(&mut self, lhs: Vec<Vec<String>>, kept: Vec<String>, rhs: Vec<Vec<String>>, weight: f64) {
         let rule = RewriteRule::new(lhs, kept, rhs, weight);
         self.inner.grammar_rules.push(rule);
