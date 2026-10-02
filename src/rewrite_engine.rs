@@ -1,6 +1,7 @@
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
+use rand::distributions::{Distribution, WeightedIndex};
 
 use crate::hypergraph::Hypergraph;
 use crate::rules::UndoRecord;
@@ -53,8 +54,6 @@ impl RewriteEngine {
     }
 
     fn propose_rewrite(&mut self) -> Option<UndoRecord> {
-        let rng = &mut self.rng;
-
         self.attempted_rewrites += 1;
 
         if self.grammar_rules.is_empty() {
@@ -65,15 +64,24 @@ impl RewriteEngine {
         let anchor_v = if self.h.active_vertex_ids.is_empty() {
             0 // Dummy anchor for spontaneous creation rules (LHS is empty)
         } else {
-            *self.h.active_vertex_ids.choose(rng).unwrap_or(&0)
+            *self.h.active_vertex_ids.choose(&mut self.rng).unwrap_or(&0)
         };
 
-        // --- Pure Grammar Execution ---
-        if let Some(rule) = self.grammar_rules.choose(rng) {
-            if let Some(match_state) = rule.find_match(&self.h, anchor_v, self.strict_dpo) {
-                self.successful_rewrites += 1;
-                return Some(rule.apply_match(&mut self.h, match_state));
-            }
+        // --- Weighted Rule Selection ---
+        // WeightedIndex is built from the stored weights each call.
+        // Rule count is always small (< ~20), so this is negligible overhead.
+        // Invariant: all weights are > 0.0 (enforced at add_rule time).
+        let rule_index = {
+            let weights: Vec<f64> = self.grammar_rules.iter().map(|r| r.weight).collect();
+            let dist = WeightedIndex::new(&weights)
+                .expect("WeightedIndex build failed — rule weights must all be > 0.0");
+            dist.sample(&mut self.rng)
+        };
+
+        let rule = &self.grammar_rules[rule_index];
+        if let Some(match_state) = rule.find_match(&self.h, anchor_v, self.strict_dpo) {
+            self.successful_rewrites += 1;
+            return Some(rule.apply_match(&mut self.h, match_state));
         }
 
         None

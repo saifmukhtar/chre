@@ -61,8 +61,17 @@ class GraphUniverse:
         self._engine.set_semantics(self.config.semantics)
 
     def add_rule(self, rule: Rule):
-        """Registers a grammar rule into the engine."""
-        self._engine.add_rule(rule.lhs, rule.kept, rule.rhs, rule.weight)
+        """Registers a grammar rule into the engine.
+
+        Raises:
+            ValueError: If rule.weight is not a finite positive number.
+        """
+        if not isinstance(rule.weight, (int, float)) or rule.weight <= 0 or rule.weight != rule.weight:
+            raise ValueError(
+                f"Rule weight must be a finite positive number, got {rule.weight!r}. "
+                f"A weight of 0 means the rule would never fire."
+            )
+        self._engine.add_rule(rule.lhs, rule.kept, rule.rhs, float(rule.weight))
 
     def evolve(self, steps: int):
         """Advances the simulation by the given number of steps."""

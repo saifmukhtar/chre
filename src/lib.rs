@@ -4,6 +4,7 @@ pub mod rules;
 pub mod grammar;
 
 use pyo3::prelude::*;
+use pyo3::exceptions::PyValueError;
 use crate::rewrite_engine::RewriteEngine;
 use crate::hypergraph::Hypergraph;
 use crate::grammar::RewriteRule;
@@ -61,9 +62,17 @@ impl Engine {
         if self.inner.strict_dpo { "DPO" } else { "SPO" }
     }
 
-    pub fn add_rule(&mut self, lhs: Vec<Vec<String>>, kept: Vec<String>, rhs: Vec<Vec<String>>, weight: f64) {
+    pub fn add_rule(&mut self, lhs: Vec<Vec<String>>, kept: Vec<String>, rhs: Vec<Vec<String>>, weight: f64) -> PyResult<()> {
+        if weight <= 0.0 || !weight.is_finite() {
+            return Err(PyValueError::new_err(format!(
+                "Rule weight must be a finite positive number, got {}. \
+                 A weight of 0.0 means the rule would never fire.",
+                weight
+            )));
+        }
         let rule = RewriteRule::new(lhs, kept, rhs, weight);
         self.inner.grammar_rules.push(rule);
+        Ok(())
     }
 
     pub fn run(&mut self, steps: usize) {

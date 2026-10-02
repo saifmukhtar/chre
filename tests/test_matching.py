@@ -245,3 +245,47 @@ class TestEngineConfig:
         u.add_rule(Rule(lhs=[], kept=[], rhs=[["A", "B"]]))
         # Should not raise — just verifies the config was accepted by the engine
         u.evolve(10)
+
+
+# ---------------------------------------------------------------------------
+# 7. Rule weight validation and weighted selection
+# ---------------------------------------------------------------------------
+
+class TestRuleWeights:
+    def test_valid_weight_accepted(self):
+        u = make_universe()
+        u.add_rule(Rule(lhs=[], kept=[], rhs=[["A", "B"]], weight=1.0))
+        u.add_rule(Rule(lhs=[], kept=[], rhs=[["A", "B"]], weight=99.5))
+        u.evolve(10)
+        assert u.get_summary()["total_vertices"] > 0
+
+    def test_zero_weight_rejected(self):
+        u = make_universe()
+        with pytest.raises(ValueError, match="finite positive"):
+            u.add_rule(Rule(lhs=[], kept=[], rhs=[["A", "B"]], weight=0.0))
+
+    def test_negative_weight_rejected(self):
+        u = make_universe()
+        with pytest.raises(ValueError, match="finite positive"):
+            u.add_rule(Rule(lhs=[], kept=[], rhs=[["A", "B"]], weight=-1.0))
+
+    def test_nan_weight_rejected(self):
+        u = make_universe()
+        with pytest.raises(ValueError, match="finite positive"):
+            u.add_rule(Rule(lhs=[], kept=[], rhs=[["A", "B"]], weight=float("nan")))
+
+    def test_inf_weight_rejected(self):
+        u = make_universe()
+        with pytest.raises(ValueError, match="finite positive"):
+            u.add_rule(Rule(lhs=[], kept=[], rhs=[["A", "B"]], weight=float("inf")))
+
+    def test_weighted_simulation_runs(self):
+        """Weighted rules must produce a valid simulation without error."""
+        u = make_universe()
+        u.add_rule(Rule(lhs=[], kept=[], rhs=[["A", "B"]], weight=10.0))
+        u.add_rule(Rule(
+            lhs=[["A", "B"]], kept=["A", "B"],
+            rhs=[["A", "B"], ["B", "C"], ["C", "A"]], weight=1.0
+        ))
+        u.evolve(1_000)
+        assert u.get_summary()["total_vertices"] > 0
