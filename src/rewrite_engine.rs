@@ -1,7 +1,7 @@
+use rand::distributions::{Distribution, WeightedIndex};
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
-use rand::distributions::{Distribution, WeightedIndex};
 
 use crate::hypergraph::Hypergraph;
 use crate::rules::UndoRecord;
@@ -44,7 +44,8 @@ impl RewriteEngine {
     pub fn step(&mut self) -> bool {
         self.time += 1;
 
-        if self.print_interval > 0 && self.time.is_multiple_of(self.print_interval) && self.verbose {
+        if self.print_interval > 0 && self.time.is_multiple_of(self.print_interval) && self.verbose
+        {
             println!("Step {}...", self.time);
         }
 

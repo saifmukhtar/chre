@@ -1,27 +1,27 @@
-use std::collections::{HashMap, HashSet};
 use crate::hypergraph::Hypergraph;
 use crate::rules::UndoRecord;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug)]
 pub struct RewriteRule {
     /// Abstract representation of the Left-Hand Side hyperedges (e.g., [[0, 1], [2, 3]])
     pub lhs_edges: Vec<Vec<usize>>,
-    
+
     /// Abstract vertices that must NOT be deleted (e.g., {0, 1, 2, 3})
     pub kept_vertices: HashSet<usize>,
-    
+
     /// Abstract representation of the Right-Hand Side hyperedges
     pub rhs_edges: Vec<Vec<usize>>,
-    
+
     /// Probability/Weight of this rule being selected
     pub weight: f64,
-    
+
     /// Maps the user's string names ("A", "B") to our internal fast indices (0, 1)
     pub name_map: HashMap<String, usize>,
-    
+
     /// The number of unique nodes present in the LHS
     pub total_lhs_nodes: usize,
-    
+
     /// Pre-computed degrees of abstract LHS nodes for VF2 0-Lookahead pruning
     pub lhs_node_degrees: HashMap<usize, usize>,
 }
@@ -37,17 +37,21 @@ impl RewriteRule {
         let mut next_id = 0;
 
         // Helper to map string variable names to fast internal integer IDs
-        let get_or_assign_id = |name: &String, map: &mut HashMap<String, usize>, id_counter: &mut usize| -> usize {
-            *map.entry(name.clone()).or_insert_with(|| {
-                let id = *id_counter;
-                *id_counter += 1;
-                id
-            })
-        };
+        let get_or_assign_id =
+            |name: &String, map: &mut HashMap<String, usize>, id_counter: &mut usize| -> usize {
+                *map.entry(name.clone()).or_insert_with(|| {
+                    let id = *id_counter;
+                    *id_counter += 1;
+                    id
+                })
+            };
 
         let mut lhs_edges = Vec::new();
         for edge in lhs_strs {
-            let mapped_edge = edge.iter().map(|n| get_or_assign_id(n, &mut name_map, &mut next_id)).collect();
+            let mapped_edge = edge
+                .iter()
+                .map(|n| get_or_assign_id(n, &mut name_map, &mut next_id))
+                .collect();
             lhs_edges.push(mapped_edge);
         }
 
@@ -55,7 +59,10 @@ impl RewriteRule {
 
         let mut rhs_edges = Vec::new();
         for edge in rhs_strs {
-            let mapped_edge = edge.iter().map(|n| get_or_assign_id(n, &mut name_map, &mut next_id)).collect();
+            let mapped_edge = edge
+                .iter()
+                .map(|n| get_or_assign_id(n, &mut name_map, &mut next_id))
+                .collect();
             rhs_edges.push(mapped_edge);
         }
 
@@ -85,14 +92,19 @@ impl RewriteRule {
     }
 
     /// Attempts to find a true topological match for the LHS in the real hypergraph.
-    pub fn find_match(&self, graph: &Hypergraph, anchor_real: u64, strict_dpo: bool) -> Option<MatchState> {
+    pub fn find_match(
+        &self,
+        graph: &Hypergraph,
+        anchor_real: u64,
+        strict_dpo: bool,
+    ) -> Option<MatchState> {
         // If the rule has no LHS, it's a spontaneous creation rule. Match instantly.
         if self.lhs_edges.is_empty() {
             return Some(MatchState::new());
         }
 
         let mut state = MatchState::new();
-        
+
         // Anchor the search: Force Abstract Node 0 to be the real vertex the engine gave us.
         state.mapping.insert(0, anchor_real);
         state.used_real_vertices.insert(anchor_real);
@@ -156,12 +168,18 @@ impl RewriteRule {
                     // Find all real edges exactly matched by the LHS
                     let mut matched_real_edges = HashSet::new();
                     for lhs_edge in &self.lhs_edges {
-                        let real_vertices: Vec<u64> = lhs_edge.iter().map(|a_id| *state.mapping.get(a_id).unwrap()).collect();
+                        let real_vertices: Vec<u64> = lhs_edge
+                            .iter()
+                            .map(|a_id| *state.mapping.get(a_id).unwrap())
+                            .collect();
                         if let Some(&first_v) = real_vertices.first() {
                             if let Some(edge_ids) = graph.vertex_to_edges.get(&first_v) {
                                 for &e_id in edge_ids {
                                     if let Some(real_edge) = graph.hyperedges.get(&e_id) {
-                                        if real_vertices.iter().all(|v| real_edge.vertices.contains(v)) {
+                                        if real_vertices
+                                            .iter()
+                                            .all(|v| real_edge.vertices.contains(v))
+                                        {
                                             matched_real_edges.insert(e_id);
                                             break; // Found the mapping for this specific LHS edge
                                         }
@@ -219,12 +237,16 @@ impl RewriteRule {
             // VF2 1-LOOKAHEAD (Frontier Feasibility): Count how many unmapped abstract neighbors
             // the current abstract node still needs. The real candidate must have at least as many
             // neighbors inside T2 (the real frontier) to satisfy those future connections.
-            let unmapped_abstract_neighbors_in_t1: usize = self.lhs_edges.iter()
+            let unmapped_abstract_neighbors_in_t1: usize = self
+                .lhs_edges
+                .iter()
                 .filter(|edge| edge.contains(&current_abstract_id))
                 .flat_map(|edge| edge.iter())
-                .filter(|&&a_id| a_id != current_abstract_id
-                    && !state.mapping.contains_key(&a_id)
-                    && state.t1_frontier.contains(&a_id))  // in T1 frontier
+                .filter(|&&a_id| {
+                    a_id != current_abstract_id
+                        && !state.mapping.contains_key(&a_id)
+                        && state.t1_frontier.contains(&a_id)
+                }) // in T1 frontier
                 .collect::<HashSet<_>>()
                 .len();
 
@@ -257,12 +279,16 @@ impl RewriteRule {
             // Count real neighbors of the candidate that are in Ñ2 — not mapped AND not in T2.
             // The real Ñ2 count must be >= abstract Ñ1 count. This prunes paths that would require
             // connecting to deep unexplored regions the real candidate cannot reach.
-            let abstract_n_tilde: usize = self.lhs_edges.iter()
+            let abstract_n_tilde: usize = self
+                .lhs_edges
+                .iter()
                 .filter(|edge| edge.contains(&current_abstract_id))
                 .flat_map(|edge| edge.iter())
-                .filter(|&&a_id| a_id != current_abstract_id
-                    && !state.mapping.contains_key(&a_id)
-                    && !state.t1_frontier.contains(&a_id)) // outside T1 — in Ñ1
+                .filter(|&&a_id| {
+                    a_id != current_abstract_id
+                        && !state.mapping.contains_key(&a_id)
+                        && !state.t1_frontier.contains(&a_id)
+                }) // outside T1 — in Ñ1
                 .collect::<HashSet<_>>()
                 .len();
 
@@ -275,7 +301,8 @@ impl RewriteRule {
                                 for &rv in &real_edge.vertices {
                                     if rv != real_candidate
                                         && !state.used_real_vertices.contains(&rv)
-                                        && !state.t2_frontier.contains(&rv) // outside T2 — in Ñ2
+                                        && !state.t2_frontier.contains(&rv)
+                                    // outside T2 — in Ñ2
                                     {
                                         seen.insert(rv);
                                     }
@@ -306,7 +333,9 @@ impl RewriteRule {
                 for &e_id in edge_ids {
                     if let Some(real_edge) = graph.hyperedges.get(&e_id) {
                         for &rv in &real_edge.vertices {
-                            if !state.used_real_vertices.contains(&rv) && !state.t2_frontier.contains(&rv) {
+                            if !state.used_real_vertices.contains(&rv)
+                                && !state.t2_frontier.contains(&rv)
+                            {
                                 state.t2_frontier.insert(rv);
                                 t2_delta.push(rv);
                             }
@@ -321,7 +350,10 @@ impl RewriteRule {
             for edge in &self.lhs_edges {
                 if edge.contains(&current_abstract_id) {
                     for &a_id in edge {
-                        if a_id != current_abstract_id && !state.mapping.contains_key(&a_id) && !state.t1_frontier.contains(&a_id) {
+                        if a_id != current_abstract_id
+                            && !state.mapping.contains_key(&a_id)
+                            && !state.t1_frontier.contains(&a_id)
+                        {
                             state.t1_frontier.insert(a_id);
                             t1_delta.push(a_id);
                         }
@@ -335,10 +367,13 @@ impl RewriteRule {
             let mut is_valid = true;
             for lhs_edge in &self.lhs_edges {
                 let is_fully_mapped = lhs_edge.iter().all(|a_id| state.mapping.contains_key(a_id));
-                
+
                 if is_fully_mapped {
-                    let real_vertices: Vec<u64> = lhs_edge.iter().map(|a_id| *state.mapping.get(a_id).unwrap()).collect();
-                    
+                    let real_vertices: Vec<u64> = lhs_edge
+                        .iter()
+                        .map(|a_id| *state.mapping.get(a_id).unwrap())
+                        .collect();
+
                     let mut shared_edge_exists = false;
                     if let Some(&first_v) = real_vertices.first() {
                         if let Some(edge_ids) = graph.vertex_to_edges.get(&first_v) {
@@ -350,7 +385,8 @@ impl RewriteRule {
                                     }
 
                                     // Verify that THIS real hyperedge contains ALL the required vertices
-                                    if real_vertices.iter().all(|v| real_edge.vertices.contains(v)) {
+                                    if real_vertices.iter().all(|v| real_edge.vertices.contains(v))
+                                    {
                                         shared_edge_exists = true;
                                         break;
                                     }
@@ -368,7 +404,13 @@ impl RewriteRule {
 
             // 5. RECURSION: If the guess is valid so far, dig deeper!
             if is_valid {
-                if self.backtrack_search(current_abstract_id + 1, total_abstract_nodes, state, graph, strict_dpo) {
+                if self.backtrack_search(
+                    current_abstract_id + 1,
+                    total_abstract_nodes,
+                    state,
+                    graph,
+                    strict_dpo,
+                ) {
                     return true; // The entire branch succeeded!
                 }
             }
@@ -400,19 +442,24 @@ impl RewriteRule {
     /// The Executor: Applies the rule to the graph using the Double-Pushout (DPO) method.
     pub fn apply_match(&self, h: &mut Hypergraph, mut match_state: MatchState) -> UndoRecord {
         let mut undo = UndoRecord::default();
-        
+
         // 1. DELETE LHS EDGES
         // For every edge in LHS, find the exact matching hyperedge in the real graph and remove it.
         for lhs_edge in &self.lhs_edges {
-            let real_vertices: Vec<u64> = lhs_edge.iter().map(|a_id| *match_state.mapping.get(a_id).unwrap()).collect();
+            let real_vertices: Vec<u64> = lhs_edge
+                .iter()
+                .map(|a_id| *match_state.mapping.get(a_id).unwrap())
+                .collect();
             let mut edge_to_remove = None;
-            
+
             if let Some(&first_v) = real_vertices.first() {
                 if let Some(edge_ids) = h.vertex_to_edges.get(&first_v) {
                     for &e_id in edge_ids {
                         if let Some(real_edge) = h.hyperedges.get(&e_id) {
                             // Exact match: Same length and contains all vertices
-                            if real_edge.vertices.len() == real_vertices.len() && real_vertices.iter().all(|v| real_edge.vertices.contains(v)) {
+                            if real_edge.vertices.len() == real_vertices.len()
+                                && real_vertices.iter().all(|v| real_edge.vertices.contains(v))
+                            {
                                 edge_to_remove = Some(e_id);
                                 break;
                             }
@@ -420,7 +467,7 @@ impl RewriteRule {
                     }
                 }
             }
-            
+
             if let Some(e_id) = edge_to_remove {
                 if let Some(e) = h.remove_hyperedge(e_id) {
                     undo.removed_edges.insert(e_id, e);
@@ -442,7 +489,7 @@ impl RewriteRule {
                             undo.removed_edges.insert(eid, e);
                         }
                     }
-                    
+
                     // Backup causal data for rollback
                     let mut affected: HashSet<u64> = h.causal_past(real_id).collect();
                     affected.extend(h.causal_future(real_id));
@@ -460,7 +507,7 @@ impl RewriteRule {
                             undo.old_children.insert(u_id, v.children.clone());
                         }
                     }
-                    
+
                     // Kill it permanently
                     if let Some(v) = h.remove_vertex(real_id) {
                         undo.removed_vertices.insert(real_id, v);
@@ -477,7 +524,7 @@ impl RewriteRule {
                     let new_v = h.add_vertex();
                     let new_id = new_v.id;
                     undo.added_vertices.push(new_id);
-                    
+
                     // Map it so edges can use it instantly!
                     match_state.mapping.insert(abstract_id, new_id);
                 }
@@ -486,15 +533,19 @@ impl RewriteRule {
 
         // 4. CREATE RHS EDGES
         for rhs_edge in &self.rhs_edges {
-            let real_vertices: Vec<u64> = rhs_edge.iter().map(|a_id| *match_state.mapping.get(a_id).unwrap()).collect();
-            
+            let real_vertices: Vec<u64> = rhs_edge
+                .iter()
+                .map(|a_id| *match_state.mapping.get(a_id).unwrap())
+                .collect();
+
             let new_edge = h.add_hyperedge(real_vertices.clone());
             undo.added_edges.push(new_edge.id);
-            
+
             // Causal linking (naive linear causal chain for newly formed edges to simulate flow)
             for i in 0..real_vertices.len().saturating_sub(1) {
-                h.add_causal_relation(real_vertices[i], real_vertices[i+1]);
-                undo.added_causal.push((real_vertices[i], real_vertices[i+1]));
+                h.add_causal_relation(real_vertices[i], real_vertices[i + 1]);
+                undo.added_causal
+                    .push((real_vertices[i], real_vertices[i + 1]));
             }
         }
 
@@ -507,7 +558,7 @@ impl RewriteRule {
 pub struct MatchState {
     /// Maps Abstract Rule IDs -> Real Hypergraph IDs (e.g., 0 -> 1045)
     pub mapping: HashMap<usize, u64>,
-    
+
     /// Tracks which real vertices are already part of the match to ensure Injectivity
     pub used_real_vertices: HashSet<u64>,
 

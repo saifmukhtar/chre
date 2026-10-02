@@ -1,13 +1,13 @@
+pub mod grammar;
 pub mod hypergraph;
 pub mod rewrite_engine;
 pub mod rules;
-pub mod grammar;
 
-use pyo3::prelude::*;
-use pyo3::exceptions::PyValueError;
-use crate::rewrite_engine::RewriteEngine;
-use crate::hypergraph::Hypergraph;
 use crate::grammar::RewriteRule;
+use crate::hypergraph::Hypergraph;
+use crate::rewrite_engine::RewriteEngine;
+use pyo3::exceptions::PyValueError;
+use pyo3::prelude::*;
 
 #[pyclass]
 pub struct Engine {
@@ -52,17 +52,30 @@ impl Engine {
         } else if s == "SPO" {
             self.inner.strict_dpo = false;
         } else {
-            println!("Warning: Unknown semantics '{}'. Defaulting to SPO.", semantics);
+            println!(
+                "Warning: Unknown semantics '{}'. Defaulting to SPO.",
+                semantics
+            );
             self.inner.strict_dpo = false;
         }
     }
 
     /// Returns the currently active rewriting semantics: "DPO" or "SPO".
     pub fn get_semantics(&self) -> &str {
-        if self.inner.strict_dpo { "DPO" } else { "SPO" }
+        if self.inner.strict_dpo {
+            "DPO"
+        } else {
+            "SPO"
+        }
     }
 
-    pub fn add_rule(&mut self, lhs: Vec<Vec<String>>, kept: Vec<String>, rhs: Vec<Vec<String>>, weight: f64) -> PyResult<()> {
+    pub fn add_rule(
+        &mut self,
+        lhs: Vec<Vec<String>>,
+        kept: Vec<String>,
+        rhs: Vec<Vec<String>>,
+        weight: f64,
+    ) -> PyResult<()> {
         if weight <= 0.0 || !weight.is_finite() {
             return Err(PyValueError::new_err(format!(
                 "Rule weight must be a finite positive number, got {}. \
@@ -122,13 +135,25 @@ impl Engine {
         }
     }
 
-    pub fn get_all_observables(&self) -> std::collections::HashMap<u64, std::collections::HashMap<String, f64>> {
-        self.inner.h.vertices.iter().map(|(&id, v)| (id, v.observables.clone())).collect()
+    pub fn get_all_observables(
+        &self,
+    ) -> std::collections::HashMap<u64, std::collections::HashMap<String, f64>> {
+        self.inner
+            .h
+            .vertices
+            .iter()
+            .map(|(&id, v)| (id, v.observables.clone()))
+            .collect()
     }
 
     /// Extracts all hyperedges as a Python List of Lists
     pub fn get_edges(&self) -> Vec<Vec<u64>> {
-        self.inner.h.hyperedges.values().map(|e| e.vertices.clone()).collect()
+        self.inner
+            .h
+            .hyperedges
+            .values()
+            .map(|e| e.vertices.clone())
+            .collect()
     }
 
     /// Returns a Python Dictionary mapping Vertex ID -> Degree (Number of connected edges)
@@ -176,7 +201,10 @@ impl Engine {
 
     /// Returns isolated vertices (degree == 0)
     pub fn get_isolated_vertices(&self) -> Vec<u64> {
-        self.inner.h.vertices.keys()
+        self.inner
+            .h
+            .vertices
+            .keys()
             .filter(|&&v_id| self.inner.h.edges_containing(v_id).is_empty())
             .copied()
             .collect()
@@ -185,7 +213,9 @@ impl Engine {
     /// Calculates the topological graph distance (shortest path) between two vertices
     /// Returns None if there is no path.
     pub fn get_shortest_path_distance(&self, start: u64, target: u64) -> Option<usize> {
-        if !self.inner.h.vertices.contains_key(&start) || !self.inner.h.vertices.contains_key(&target) {
+        if !self.inner.h.vertices.contains_key(&start)
+            || !self.inner.h.vertices.contains_key(&target)
+        {
             return None;
         }
         if start == target {
@@ -194,7 +224,7 @@ impl Engine {
 
         let mut visited = std::collections::HashSet::new();
         visited.insert(start);
-        
+
         let mut frontier = vec![start];
         let mut depth = 0;
 
