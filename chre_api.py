@@ -1,5 +1,8 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Literal
+import json
+import xml.etree.ElementTree as ET
+from xml.dom import minidom
 import chre  # The compiled Rust engine (chre.so)
 
 @dataclass
@@ -158,6 +161,86 @@ class GraphUniverse:
     def get_all_observables(self) -> Dict[int, Dict[str, float]]:
         """Returns the entire physical state of the universe as a dictionary mapping v_id -> observables."""
         return self._engine.get_all_observables()
+
+    def save_json(self, filepath: str):
+        """Exports the graph to a JSON file containing vertices, edges, and observables.
+        
+        Format:
+        {
+            "vertices": [{"id": 0, "observables": {"mass": 1.0}}, ...],
+            "edges": [[0, 1], [1, 2, 3], ...]
+        }
+        """
+        topo = self.get_raw_topology()
+        obs = self.get_all_observables()
+        
+        out = {
+            "vertices": [{"id": v, "observables": obs.get(v, {})} for v in topo["vertices"]],
+            "edges": topo["edges"]
+        }
+        
+        with open(filepath, 'w') as f:
+            json.dump(out, f, indent=2)
+
+    def save_graphml(self, filepath: str):
+        """Exports the graph to GraphML format, which can be opened in Gephi or NetworkX.
+        
+        Because GraphML has poor native hyperedge support in most visualizers (like Gephi),
+        this exports a *bipartite* representation:
+        - Vertices are nodes with type='vertex'.
+        - Hyperedges are nodes with type='hyperedge'.
+        - Binary edges connect the hyperedge-nodes to their vertex-nodes.
+        
+        Vertex observables are automatically exported as node attributes.
+        """
+        root = ET.Element("graphml", {
+            "xmlns": "http://graphml.graphdrawing.org/xmlns",
+            "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+            "xsi:schemaLocation": "http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd"
+        })
+        
+        # Define the 'type' attribute
+        key_type = ET.SubElement(root, "key", {"id": "d_type", "for": "node", "attr.name": "type", "attr.type": "string"})
+        
+        topo = self.get_raw_topology()
+        obs = self.get_all_observables()
+        
+        # Discover all unique observable keys
+        all_obs_keys = set()
+        for v_obs in obs.values():
+            all_obs_keys.update(v_obs.keys())
+            
+        # Define GraphML keys for each observable
+        for k in all_obs_keys:
+            ET.SubElement(root, "key", {"id": f"d_{k}", "for": "node", "attr.name": k, "attr.type": "double"})
+            
+        graph = ET.SubElement(root, "graph", {"id": "G", "edgedefault": "undirected"})
+        
+        # Add Vertices
+        for v in topo["vertices"]:
+            n = ET.SubElement(graph, "node", {"id": f"v{v}"})
+            ET.SubElement(n, "data", {"key": "d_type"}).text = "vertex"
+            v_obs = obs.get(v, {})
+            for k, val in v_obs.items():
+                ET.SubElement(n, "data", {"key": f"d_{k}"}).text = str(val)
+                
+        # Add Hyperedges as nodes, and link them to vertices
+        edge_id = 0
+        for edge_vertices in topo["edges"]:
+            e_name = f"e{edge_id}"
+            en = ET.SubElement(graph, "node", {"id": e_name})
+            ET.SubElement(en, "data", {"key": "d_type"}).text = "hyperedge"
+            
+            for v in edge_vertices:
+                ET.SubElement(graph, "edge", {"source": e_name, "target": f"v{v}"})
+                
+            edge_id += 1
+            
+        # Pretty print and save
+        xml_str = minidom.parseString(ET.tostring(root, 'utf-8')).toprettyxml(indent="  ")
+        # Remove the extra XML declaration minidom adds if we want it perfect, but it's fine.
+        with open(filepath, 'w') as f:
+            f.write(xml_str)
 
     def reset(self):
         """Clears all vertices and edges from the graph."""

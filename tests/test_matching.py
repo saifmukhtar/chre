@@ -379,3 +379,56 @@ class TestObservables:
         
         with pytest.raises(ValueError, match="Vertex 999 not found"):
             u.get_observable(999, "mass")
+
+
+# ---------------------------------------------------------------------------
+# 10. Exporters
+# ---------------------------------------------------------------------------
+
+class TestExporters:
+    def test_save_json(self, tmp_path):
+        import json
+        u = make_universe()
+        u.add_rule(Rule(lhs=[], kept=[], rhs=[["A", "B"]]))
+        u.step()
+        v = u.get_raw_topology()["vertices"][0]
+        u.set_observable(v, "mass", 3.14)
+        
+        filepath = tmp_path / "test.json"
+        u.save_json(str(filepath))
+        
+        with open(filepath) as f:
+            data = json.load(f)
+            
+        assert "vertices" in data
+        assert "edges" in data
+        assert len(data["vertices"]) == 2
+        
+        # Check observables
+        v0 = next(vd for vd in data["vertices"] if vd["id"] == v)
+        assert v0["observables"]["mass"] == 3.14
+
+    def test_save_graphml(self, tmp_path):
+        import xml.etree.ElementTree as ET
+        u = make_universe()
+        u.add_rule(Rule(lhs=[], kept=[], rhs=[["A", "B"]]))
+        u.step()
+        v = u.get_raw_topology()["vertices"][0]
+        u.set_observable(v, "charge", -1.0)
+        
+        filepath = tmp_path / "test.graphml"
+        u.save_graphml(str(filepath))
+        
+        tree = ET.parse(filepath)
+        root = tree.getroot()
+        
+        # GraphML namespace
+        ns = {"gml": "http://graphml.graphdrawing.org/xmlns"}
+        
+        nodes = root.findall(".//gml:node", ns)
+        edges = root.findall(".//gml:edge", ns)
+        
+        # 2 vertices + 1 hyperedge = 3 nodes in bipartite format
+        assert len(nodes) == 3
+        # 1 hyperedge containing 2 vertices = 2 binary edges
+        assert len(edges) == 2
