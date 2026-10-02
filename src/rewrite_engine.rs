@@ -1,6 +1,6 @@
-use rand::distributions::{Distribution, WeightedIndex};
-use rand::rngs::SmallRng;
-use rand::seq::SliceRandom;
+use rand::distr::{Distribution, weighted::WeightedIndex};
+use rand::rngs::StdRng;
+use rand::seq::IndexedRandom;
 use rand::SeedableRng;
 
 use crate::hypergraph::Hypergraph;
@@ -9,7 +9,7 @@ use crate::rules::UndoRecord;
 pub struct RewriteEngine {
     pub h: Hypergraph,
     pub grammar_rules: Vec<crate::grammar::RewriteRule>,
-    pub rng: SmallRng,
+    pub rng: StdRng,
     pub time: usize,
     pub verbose: bool,
     pub print_interval: usize,
@@ -22,9 +22,9 @@ pub struct RewriteEngine {
 impl RewriteEngine {
     pub fn new(h: Hypergraph, _dummy: f64, seed: Option<u64>) -> Self {
         let rng = if let Some(s) = seed {
-            SmallRng::seed_from_u64(s)
+            StdRng::seed_from_u64(s)
         } else {
-            SmallRng::from_entropy()
+            StdRng::from_rng(&mut rand::rng())
         };
 
         Self {
