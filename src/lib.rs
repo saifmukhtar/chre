@@ -56,6 +56,11 @@ impl Engine {
         }
     }
 
+    /// Returns the currently active rewriting semantics: "DPO" or "SPO".
+    pub fn get_semantics(&self) -> &str {
+        if self.inner.strict_dpo { "DPO" } else { "SPO" }
+    }
+
     pub fn add_rule(&mut self, lhs: Vec<Vec<String>>, kept: Vec<String>, rhs: Vec<Vec<String>>, weight: f64) {
         let rule = RewriteRule::new(lhs, kept, rhs, weight);
         self.inner.grammar_rules.push(rule);

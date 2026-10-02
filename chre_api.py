@@ -80,6 +80,14 @@ class GraphUniverse:
         self.config.semantics = semantics
         self._engine.set_semantics(semantics)
 
+    def get_semantics(self) -> Literal["DPO", "SPO"]:
+        """Returns the currently active rewriting semantics as reported by the engine.
+
+        This queries the Rust engine directly, so it reflects the true runtime state
+        regardless of how semantics was set (via config or set_semantics()).
+        """
+        return self._engine.get_semantics()
+
     def get_summary(self) -> Dict[str, int]:
         """Returns a summary of the current graph state."""
         return {
