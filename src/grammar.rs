@@ -21,6 +21,9 @@ pub struct RewriteRule {
     
     /// The number of unique nodes present in the LHS
     pub total_lhs_nodes: usize,
+    
+    /// Pre-computed degrees of abstract LHS nodes for VF2 0-Lookahead pruning
+    pub lhs_node_degrees: HashMap<usize, usize>,
 }
 
 impl RewriteRule {
@@ -63,6 +66,13 @@ impl RewriteRule {
             }
         }
 
+        let mut lhs_node_degrees = HashMap::new();
+        for edge in &lhs_edges {
+            for &node in edge {
+                *lhs_node_degrees.entry(node).or_insert(0) += 1;
+            }
+        }
+
         Self {
             lhs_edges,
             kept_vertices,
@@ -70,6 +80,7 @@ impl RewriteRule {
             weight,
             name_map,
             total_lhs_nodes,
+            lhs_node_degrees,
         }
     }
 
@@ -195,6 +206,14 @@ impl RewriteRule {
                 continue;
             }
 
+            // VF2 0-LOOKAHEAD (Degree Pruning): Real node must have enough edges
+            if let Some(&required_degree) = self.lhs_node_degrees.get(&current_abstract_id) {
+                let actual_degree = graph.edges_containing(real_candidate).len();
+                if actual_degree < required_degree {
+                    continue; // Fast rejection
+                }
+            }
+
             // TENTATIVE GUESS: Map the candidate
             state.mapping.insert(current_abstract_id, real_candidate);
             state.used_real_vertices.insert(real_candidate);
@@ -212,6 +231,11 @@ impl RewriteRule {
                         if let Some(edge_ids) = graph.vertex_to_edges.get(&first_v) {
                             for &e_id in edge_ids {
                                 if let Some(real_edge) = graph.hyperedges.get(&e_id) {
+                                    // HYPEREDGE ARITY PRUNING: Fast rejection if real edge is too small
+                                    if real_edge.vertices.len() < real_vertices.len() {
+                                        continue;
+                                    }
+
                                     // Verify that THIS real hyperedge contains ALL the required vertices
                                     if real_vertices.iter().all(|v| real_edge.vertices.contains(v)) {
                                         shared_edge_exists = true;
