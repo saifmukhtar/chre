@@ -2,8 +2,11 @@
 name = "chre"
 version = "0.1.5"
 edition = "2021"
+authors = ["saifmukhtar <saifmukhtar20@gmail.com>"]
 license = "Apache-2.0"
 description = "CHRE: Causal Hypergraph Rewrite Engine"
+readme = "README.md"
+repository = "https://github.com/saifmukhtar/chre"
 
 [dependencies]
 rand = { version = "0.10", features = ["std_rng"] }

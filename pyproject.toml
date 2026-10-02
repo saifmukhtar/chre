@@ -8,13 +8,17 @@ version = "0.1.5"
 description = "CHRE: Causal Hypergraph Rewrite Engine"
 readme = "README.md"
 requires-python = ">=3.8"
+license = { text = "Apache-2.0" }
 authors = [
-    { name = "Saif", email = "saif@example.com" }
+    { name = "saifmukhtar", email = "saifmukhtar20@gmail.com" }
 ]
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
 ]
+
+[project.urls]
+Repository = "https://github.com/saifmukhtar/chre"
 
 [tool.maturin]
 # Maps the compiled Rust binary directly to the Python module
