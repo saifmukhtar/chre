@@ -3,29 +3,30 @@
 [![PyPI version](https://badge.fury.io/py/chre.svg)](https://badge.fury.io/py/chre)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**CHRE** is a blazing-fast, purely mathematical Graph Grammar execution engine. It allows you to define structural rewrite rules (topological grammars) and evolve complex hypergraphs over hundreds of thousands of steps in mere seconds.
+**CHRE** is a graph grammar execution engine written in Rust and exposed to Python via PyO3. It allows you to define structural rewrite rules over hypergraphs and evolve them over many steps at native speed.
 
-Written entirely in **Rust** for maximum performance and exposed effortlessly to Python via **PyO3**, CHRE handles the NP-Complete problem of Subgraph Isomorphism (using an optimized VF2 algorithm) and applies Double-Pushout (DPO) graph rewriting at native speeds.
-
----
-
-## 🎯 Is CHRE for you?
-
-If you want to run graph analytics on a static network, use `NetworkX`. 
-If you want to **dynamically evolve a network's topology** using rules, you need CHRE.
-
-CHRE is specifically designed for researchers, data scientists, and physicists who need to simulate:
-* **Emergent Geometries:** (e.g., Wolfram Physics Project models, Causal Set Theory).
-* **Artificial Life & Cellular Automata:** Operating on dynamic graphs instead of rigid 2D grids.
-* **Complex Systems:** Modeling social networks, chemical reaction networks, or distributed systems where the rules of interaction physically change the network's structure.
-
-**Why CHRE?** Standard Python libraries choke when trying to dynamically add/remove thousands of nodes and edges per second while simultaneously solving subgraph isomorphisms. CHRE offloads 100% of the graph matching and memory allocation to Rust, while letting you orchestrate the rules easily in Python.
+The engine solves the Subgraph Isomorphism problem using a VF2-based algorithm adapted for hypergraphs, and applies rewrite rules under Double-Pushout (DPO) semantics with full dangling condition enforcement.
 
 ---
 
-## 🚀 Installation
+## When to use CHRE
 
-CHRE is distributed as pre-compiled Python wheels via PyPI. You do not need to install Rust or compile anything.
+If you need to analyze a static graph, use `NetworkX`.
+
+CHRE is for cases where the **topology itself evolves** according to rules — where nodes and edges are created and destroyed based on structural pattern matching. Typical use cases include:
+
+- Causal set models and discrete spacetime simulations (e.g., Wolfram Physics Project style)
+- Graph-based cellular automata and artificial life
+- Chemical reaction network simulation
+- Any system where the interaction rules structurally modify the network
+
+Standard Python graph libraries serialize and copy data for every mutation. CHRE keeps the entire graph in Rust memory and only crosses the Python/Rust boundary when you explicitly request data.
+
+---
+
+## Installation
+
+CHRE is distributed as pre-compiled Python wheels via PyPI. No Rust toolchain is required.
 
 ```bash
 pip install chre
@@ -33,76 +34,84 @@ pip install chre
 
 ---
 
-## 🧠 How it Works
-CHRE is a strict, rule-based topological engine.
-1. **Define a Rule:** Provide a Left-Hand Side (what shape to look for) and a Right-Hand Side (what to replace it with).
-2. **Matcher:** The Rust engine rapidly scans the hypergraph for perfect topological isomorphisms.
-3. **Executor:** The engine safely executes the rewrite, cleans up dangling edges, and spawns new vertices.
+## How it works
 
-For a deep dive into how the engine is built, please read [ARCHITECTURE.md](ARCHITECTURE.md).
+CHRE is a rule-based topological engine. Each step:
+
+1. **Anchor Selection:** A vertex is selected uniformly at random from the active vertex pool in $O(1)$ using a `swap_remove`-backed index.
+2. **Matching:** The engine searches for a subgraph isomorphism between the rule's Left-Hand Side (LHS) and the real graph, using a VF2-based algorithm with T1/T2 frontier tracking and 1-lookahead and 2-lookahead feasibility pruning adapted for hyperedges.
+3. **Execution:** If a match is found, the rule is applied under DPO semantics. The dangling condition is checked: if any vertex being deleted has edges not covered by the LHS match, the rewrite is aborted. Otherwise, LHS edges are deleted, dead vertices are removed, and RHS vertices and edges are created.
+
+For full implementation details, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
-## 💻 Quickstart (Python)
-
-You can orchestrate the entire universe directly from Python.
+## Quickstart
 
 ```python
 from chre_api import GraphUniverse, EngineConfig, Rule
 
-# 1. Initialize the Engine
 config = EngineConfig(verbose=True, print_interval=10000)
 universe = GraphUniverse(config)
 
-# 2. Add Rules (Spontaneous Creation)
-# LHS: [] -> Empty space
-# RHS: [["A", "B"]] -> Creates two nodes connected by one edge
+# Spontaneous creation: empty LHS creates a new edge from nothing
 universe.add_rule(Rule(lhs=[], kept=[], rhs=[["A", "B"]], weight=1.0))
 
-# 3. Add Rules (Triangle Expansion)
-# LHS: [["A", "B"]] -> Finds an existing edge
-# RHS: [["A", "B"], ["B", "C"], ["C", "A"]] -> Spawns node C and creates a triangle
+# Triangle expansion: finds an edge and adds a new vertex connected to both endpoints
 universe.add_rule(Rule(
-    lhs=[["A", "B"]], 
-    kept=["A", "B"], 
-    rhs=[["A", "B"], ["B", "C"], ["C", "A"]], 
+    lhs=[["A", "B"]],
+    kept=["A", "B"],
+    rhs=[["A", "B"], ["B", "C"], ["C", "A"]],
     weight=1.0
 ))
 
-# 4. Evolve the Universe!
-print("Running 100,000 steps...")
 universe.evolve(100_000)
-
-# 5. Extract Analytics natively into Python
 print(universe.get_summary())
-
-# Pull the raw graph data for NetworkX or visualization
-raw_data = universe.get_raw_topology()
-edges = raw_data["edges"]
 ```
 
 ---
 
-## ⚡ Advanced Configuration & Analytics
+## Semantics toggle
 
-Because Python orchestration crosses the FFI boundary seamlessly, you can dynamically configure the engine and pull heavy topological analytics directly from the Rust backend.
+The engine defaults to strict **DPO (Double-Pushout)** semantics. A rewrite is aborted if deleting a vertex would leave dangling edges not covered by the rule's LHS.
+
+To switch to **SPO (Single-Pushout)** semantics — where dangling edges are automatically deleted along with the vertex — call:
 
 ```python
-# Memory Pre-allocation (Optimizes RAM for massive graphs)
-config.bitset_capacity = 1_000_000
-
-# Causal Horizon Limits (For directional flow mapping)
-config.causal_horizon = 10
-
-# Topological Analytics (Calculated instantly in Rust)
-isolated_nodes = universe._engine.get_isolated_vertices()
-edge_sizes = universe._engine.get_edge_size_map()
-
-# Calculate emergent geometric distance (Shortest Path)
-dist = universe._engine.get_shortest_path_distance(node_start=0, node_target=45)
+universe._engine.set_semantics("SPO")
 ```
 
 ---
 
-## 📜 License
-This project is licensed under the **Apache License 2.0**.
+## Configuration
+
+```python
+config = EngineConfig(
+    verbose=True,
+    print_interval=10000,    # Log progress every N steps
+    bitset_capacity=1024,    # Initial FixedBitSet allocation for causal tracking
+    causal_horizon=6,        # Max BFS depth for causal relation updates
+)
+```
+
+---
+
+## Analytics
+
+```python
+summary = universe.get_summary()
+# {"total_vertices": ..., "total_edges": ..., "structural_pairs": ...}
+
+raw = universe.get_raw_topology()
+# {"vertices": [...], "edges": [[...], ...]}
+
+dist = universe._engine.get_shortest_path_distance(node_start=0, node_target=45)
+isolated = universe._engine.get_isolated_vertices()
+edge_sizes = universe._engine.get_edge_size_map()
+```
+
+---
+
+## License
+
+Apache License 2.0
