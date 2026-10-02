@@ -1,59 +1,100 @@
-from dataclasses import dataclass
-from typing import List, Dict, Optional
+from dataclasses import dataclass, field
+from typing import List, Dict, Optional, Literal
 import chre  # The compiled Rust engine (chre.so)
 
 @dataclass
 class EngineConfig:
-    """Configuration parameters for the CHRE Hypergraph Engine."""
+    """Configuration parameters for the CHRE Hypergraph Engine.
+
+    Attributes:
+        verbose: If True, the engine logs progress at every print_interval steps.
+        print_interval: Number of steps between progress log lines.
+        bitset_capacity: Initial allocation size for causal FixedBitSets. Increase
+            for large simulations to reduce allocator pressure.
+        causal_horizon: Maximum BFS depth when propagating causal relations.
+            Higher values increase causal accuracy but raise per-step cost on
+            dense graphs.
+        semantics: Graph rewriting semantics. Either "DPO" or "SPO".
+            "DPO" (Double-Pushout, default): A rewrite is aborted if deleting a
+                vertex would leave edges not covered by the rule's LHS.
+            "SPO" (Single-Pushout): Dangling edges are deleted automatically when
+                their endpoint vertex is removed.
+    """
     verbose: bool = True
     print_interval: int = 10000
     bitset_capacity: int = 1024
     causal_horizon: int = 6
+    semantics: Literal["DPO", "SPO"] = "DPO"
+
 
 @dataclass
 class Rule:
-    """A Topological Graph Grammar Rule."""
-    lhs: List[List[str]]          # The pattern to match
-    kept: List[str]               # The vertices to preserve (Dangling Condition applies to others)
-    rhs: List[List[str]]          # The new structure to generate
-    weight: float = 1.0           # Probability weight
+    """A graph grammar rule defining a structural rewrite.
+
+    Attributes:
+        lhs: Left-Hand Side. A list of hyperedges (each a list of vertex names)
+            describing the pattern to search for.
+        kept: Vertex names from the LHS that are preserved across the rewrite.
+            Vertices in the LHS but not in kept are deleted.
+        rhs: Right-Hand Side. A list of hyperedges describing the replacement
+            structure. Vertex names that appear in the RHS but not the LHS will
+            result in new vertices being created.
+        weight: Relative probability weight for rule selection. Default is 1.0.
+    """
+    lhs: List[List[str]]
+    kept: List[str]
+    rhs: List[List[str]]
+    weight: float = 1.0
+
 
 class GraphUniverse:
-    """Pythonic Wrapper for the high-performance Rust CHRE Engine."""
-    
+    """Python interface for the CHRE Rust engine."""
+
     def __init__(self, config: Optional[EngineConfig] = None):
         self.config = config or EngineConfig()
         self._engine = chre.Engine()
-        
-        # Inject configurations into Rust
+
         self._engine.set_verbose(self.config.verbose)
         self._engine.set_print_interval(self.config.print_interval)
         self._engine.set_bitset_capacity(self.config.bitset_capacity)
         self._engine.set_causal_horizon(self.config.causal_horizon)
+        self._engine.set_semantics(self.config.semantics)
 
     def add_rule(self, rule: Rule):
-        """Registers a physics/grammar rule into the engine."""
+        """Registers a grammar rule into the engine."""
         self._engine.add_rule(rule.lhs, rule.kept, rule.rhs, rule.weight)
 
     def evolve(self, steps: int):
-        """Advances the universe by N steps at native Rust speeds."""
+        """Advances the simulation by the given number of steps."""
         self._engine.run(steps)
 
+    def set_semantics(self, semantics: Literal["DPO", "SPO"]):
+        """Switches rewriting semantics at runtime.
+
+        Args:
+            semantics: "DPO" for strict Double-Pushout (aborts on dangling edges),
+                or "SPO" for Single-Pushout (auto-deletes dangling edges).
+        """
+        if semantics not in ("DPO", "SPO"):
+            raise ValueError(f"semantics must be 'DPO' or 'SPO', got '{semantics}'")
+        self.config.semantics = semantics
+        self._engine.set_semantics(semantics)
+
     def get_summary(self) -> Dict[str, int]:
-        """Returns a quick macroscopic summary of the universe."""
+        """Returns a summary of the current graph state."""
         return {
             "total_vertices": self._engine.node_count(),
             "total_edges": self._engine.edge_count(),
             "structural_pairs": self._engine.get_structural_pair_count()
         }
 
-    def get_raw_topology(self):
-        """Returns the raw graph data for NetworkX or saving to disk."""
+    def get_raw_topology(self) -> Dict:
+        """Returns the raw vertex and edge data."""
         return {
             "vertices": self._engine.get_vertices(),
             "edges": self._engine.get_edges()
         }
-    
+
     def reset(self):
-        """Wipes the universe clean."""
+        """Clears all vertices and edges from the graph."""
         self._engine.clear_graph()
