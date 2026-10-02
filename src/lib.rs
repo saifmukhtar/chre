@@ -108,7 +108,24 @@ impl Engine {
     pub fn clear_graph(&mut self) {
         self.inner.h = Hypergraph::new();
         self.inner.attempted_rewrites = 0;
+        self.inner.successful_rewrites = 0;
         self.inner.time = 0;
+    }
+
+    /// Returns total steps attempted since last reset.
+    pub fn get_attempted_rewrites(&self) -> usize {
+        self.inner.attempted_rewrites
+    }
+
+    /// Returns total steps that resulted in a successful rule match and graph mutation.
+    pub fn get_successful_rewrites(&self) -> usize {
+        self.inner.successful_rewrites
+    }
+
+    /// Resets only the step counters (attempted and successful rewrites), without clearing the graph.
+    pub fn reset_counters(&mut self) {
+        self.inner.attempted_rewrites = 0;
+        self.inner.successful_rewrites = 0;
     }
 
     /// Returns isolated vertices (degree == 0)
