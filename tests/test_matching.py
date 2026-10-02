@@ -336,3 +336,46 @@ class TestUndoRollback:
         u.step()
         assert u.rollback() is True
         assert u.rollback() is False
+
+
+# ---------------------------------------------------------------------------
+# 9. Observables
+# ---------------------------------------------------------------------------
+
+class TestObservables:
+    def test_set_and_get_observable(self):
+        u = make_universe()
+        u.add_rule(Rule(lhs=[], kept=[], rhs=[["A"]]))
+        u.step()
+        
+        v_id = u.get_raw_topology()["vertices"][0]
+        
+        # Initially not set
+        assert u.get_observable(v_id, "mass") is None
+        
+        # Set and retrieve
+        u.set_observable(v_id, "mass", 1.5)
+        u.set_observable(v_id, "spin", -0.5)
+        
+        assert u.get_observable(v_id, "mass") == 1.5
+        assert u.get_observable(v_id, "spin") == -0.5
+
+    def test_get_all_observables(self):
+        u = make_universe()
+        u.add_rule(Rule(lhs=[], kept=[], rhs=[["A"]]))
+        u.step()
+        
+        v_id = u.get_raw_topology()["vertices"][0]
+        u.set_observable(v_id, "energy", 42.0)
+        
+        obs = u.get_all_observables()
+        assert v_id in obs
+        assert obs[v_id]["energy"] == 42.0
+
+    def test_invalid_vertex_raises(self):
+        u = make_universe()
+        with pytest.raises(ValueError, match="Vertex 999 not found"):
+            u.set_observable(999, "mass", 1.0)
+        
+        with pytest.raises(ValueError, match="Vertex 999 not found"):
+            u.get_observable(999, "mass")

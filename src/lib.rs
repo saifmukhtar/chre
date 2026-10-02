@@ -105,6 +105,27 @@ impl Engine {
         self.inner.h.vertices.keys().copied().collect()
     }
 
+    pub fn set_observable(&mut self, v_id: u64, key: String, value: f64) -> PyResult<()> {
+        if let Some(vertex) = self.inner.h.vertices.get_mut(&v_id) {
+            vertex.observables.insert(key, value);
+            Ok(())
+        } else {
+            Err(PyValueError::new_err(format!("Vertex {} not found", v_id)))
+        }
+    }
+
+    pub fn get_observable(&self, v_id: u64, key: String) -> PyResult<Option<f64>> {
+        if let Some(vertex) = self.inner.h.vertices.get(&v_id) {
+            Ok(vertex.observables.get(&key).copied())
+        } else {
+            Err(PyValueError::new_err(format!("Vertex {} not found", v_id)))
+        }
+    }
+
+    pub fn get_all_observables(&self) -> std::collections::HashMap<u64, std::collections::HashMap<String, f64>> {
+        self.inner.h.vertices.iter().map(|(&id, v)| (id, v.observables.clone())).collect()
+    }
+
     /// Extracts all hyperedges as a Python List of Lists
     pub fn get_edges(&self) -> Vec<Vec<u64>> {
         self.inner.h.hyperedges.values().map(|e| e.vertices.clone()).collect()

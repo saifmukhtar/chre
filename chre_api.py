@@ -131,6 +131,34 @@ class GraphUniverse:
             "edges": self._engine.get_edges()
         }
 
+    def set_observable(self, v_id: int, key: str, value: float):
+        """Attaches arbitrary key-value physical state to a vertex.
+
+        Args:
+            v_id: The vertex ID.
+            key: The string name of the observable (e.g. 'mass').
+            value: The float value.
+
+        Raises:
+            ValueError: If the vertex does not exist.
+        """
+        self._engine.set_observable(v_id, key, float(value))
+
+    def get_observable(self, v_id: int, key: str) -> Optional[float]:
+        """Reads a physical observable from a vertex.
+
+        Returns:
+            The float value if present, or None if the key is not set.
+
+        Raises:
+            ValueError: If the vertex does not exist.
+        """
+        return self._engine.get_observable(v_id, key)
+
+    def get_all_observables(self) -> Dict[int, Dict[str, float]]:
+        """Returns the entire physical state of the universe as a dictionary mapping v_id -> observables."""
+        return self._engine.get_all_observables()
+
     def reset(self):
         """Clears all vertices and edges from the graph."""
         self._engine.clear_graph()

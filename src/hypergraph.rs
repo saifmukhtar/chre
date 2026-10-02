@@ -2,8 +2,6 @@ use fixedbitset::FixedBitSet;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use smallvec::SmallVec;
-
 static VERTEX_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 static EDGE_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -11,7 +9,7 @@ static EDGE_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 pub struct Vertex {
     pub id: u64,
     pub depth: usize, // Causal depth in the DAG
-    pub state: SmallVec<[f64; 4]>, // AI Node Embedding / Feature Vector
+    pub observables: HashMap<String, f64>, // Physical properties, e.g., mass, spin
     pub parents: Vec<u64>,
     pub children: Vec<u64>,
 }
@@ -21,7 +19,7 @@ impl Vertex {
         Self {
             id: VERTEX_ID_COUNTER.fetch_add(1, Ordering::SeqCst),
             depth: 1,
-            state: SmallVec::new(),
+            observables: HashMap::new(),
             parents: Vec::new(),
             children: Vec::new(),
         }
