@@ -289,3 +289,50 @@ class TestRuleWeights:
         ))
         u.evolve(1_000)
         assert u.get_summary()["total_vertices"] > 0
+
+
+# ---------------------------------------------------------------------------
+# 8. Undo and Rollback API
+# ---------------------------------------------------------------------------
+
+class TestUndoRollback:
+    def test_rollback_empty_returns_false(self):
+        u = make_universe()
+        assert u.rollback() is False
+
+    def test_rollback_reverts_single_step(self):
+        u = make_universe()
+        u.add_rule(Rule(lhs=[], kept=[], rhs=[["A", "B"]]))
+        
+        # Take exactly one step
+        fired = u.step()
+        assert fired is True
+        assert u.get_summary()["total_vertices"] == 2
+        assert u.get_summary()["total_edges"] == 1
+        
+        # Rollback
+        rolled_back = u.rollback()
+        assert rolled_back is True
+        assert u.get_summary()["total_vertices"] == 0
+        assert u.get_summary()["total_edges"] == 0
+
+    def test_rollback_reverts_counters(self):
+        u = make_universe()
+        u.add_rule(Rule(lhs=[], kept=[], rhs=[["A", "B"]]))
+        
+        u.step()
+        assert u._engine.get_successful_rewrites() == 1
+        assert u._engine.get_attempted_rewrites() == 1
+        
+        u.rollback()
+        assert u._engine.get_successful_rewrites() == 0
+        assert u._engine.get_attempted_rewrites() == 0
+
+    def test_multi_rollback_fails(self):
+        """Only one level of history is stored."""
+        u = make_universe()
+        u.add_rule(Rule(lhs=[], kept=[], rhs=[["A", "B"]]))
+        
+        u.step()
+        assert u.rollback() is True
+        assert u.rollback() is False

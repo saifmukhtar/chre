@@ -81,6 +81,17 @@ impl Engine {
         }
     }
 
+    /// Executes exactly one step. Returns true if a rule fired, false otherwise.
+    pub fn step(&mut self) -> bool {
+        self.inner.step()
+    }
+
+    /// Reverts the graph state to exactly before the last successful step.
+    /// Returns true if a rollback was performed, false if no history was available.
+    pub fn rollback(&mut self) -> bool {
+        self.inner.rollback()
+    }
+
     pub fn node_count(&self) -> usize {
         self.inner.h.vertices.len()
     }

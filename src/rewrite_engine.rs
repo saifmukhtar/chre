@@ -16,6 +16,7 @@ pub struct RewriteEngine {
     pub attempted_rewrites: usize,
     pub successful_rewrites: usize,
     pub strict_dpo: bool,
+    pub last_undo: Option<UndoRecord>,
 }
 
 impl RewriteEngine {
@@ -35,7 +36,8 @@ impl RewriteEngine {
             print_interval: 10000,
             attempted_rewrites: 0,
             successful_rewrites: 0,
-            strict_dpo: true, // Default to strict DPO semantics
+            strict_dpo: true,
+            last_undo: None,
         }
     }
 
@@ -46,8 +48,21 @@ impl RewriteEngine {
             println!("Step {}...", self.time);
         }
 
-        if let Some(_undo) = self.propose_rewrite() {
-            // Undo record could be used here for rollbacks if desired
+        if let Some(undo) = self.propose_rewrite() {
+            self.last_undo = Some(undo);
+            return true;
+        }
+        self.last_undo = None; // clear if no rule fired
+        false
+    }
+
+    pub fn rollback(&mut self) -> bool {
+        if let Some(undo) = self.last_undo.take() {
+            self.h.execute_undo_record(undo);
+            // Reverse the counters
+            self.successful_rewrites = self.successful_rewrites.saturating_sub(1);
+            self.attempted_rewrites = self.attempted_rewrites.saturating_sub(1);
+            self.time = self.time.saturating_sub(1);
             return true;
         }
         false

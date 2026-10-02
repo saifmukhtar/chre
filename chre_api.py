@@ -77,6 +77,25 @@ class GraphUniverse:
         """Advances the simulation by the given number of steps."""
         self._engine.run(steps)
 
+    def step(self) -> bool:
+        """Executes exactly one step.
+
+        Returns:
+            bool: True if a rule matched and the graph was modified, False otherwise.
+        """
+        return self._engine.step()
+
+    def rollback(self) -> bool:
+        """Reverts the graph state to exactly before the last successful step.
+
+        Note: CHRE currently only stores one level of undo history. Calling rollback()
+        multiple times in a row will only undo the single most recent step.
+
+        Returns:
+            bool: True if a rollback was performed, False if no history was available.
+        """
+        return self._engine.rollback()
+
     def set_semantics(self, semantics: Literal["DPO", "SPO"]):
         """Switches rewriting semantics at runtime.
 
