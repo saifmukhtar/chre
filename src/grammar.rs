@@ -97,6 +97,30 @@ impl RewriteRule {
         state.mapping.insert(0, anchor_real);
         state.used_real_vertices.insert(anchor_real);
 
+        // SEED VF2 FRONTIERS from anchor (abstract node 0 / real node anchor_real)
+        // T1: All abstract LHS neighbors of abstract node 0 that are not yet mapped
+        for edge in &self.lhs_edges {
+            if edge.contains(&0) {
+                for &abstract_neighbor in edge {
+                    if !state.mapping.contains_key(&abstract_neighbor) {
+                        state.t1_frontier.insert(abstract_neighbor);
+                    }
+                }
+            }
+        }
+        // T2: All real neighbors of the real anchor vertex that are not yet mapped
+        if let Some(edge_ids) = graph.vertex_to_edges.get(&anchor_real) {
+            for &e_id in edge_ids {
+                if let Some(real_edge) = graph.hyperedges.get(&e_id) {
+                    for &real_neighbor in &real_edge.vertices {
+                        if !state.used_real_vertices.contains(&real_neighbor) {
+                            state.t2_frontier.insert(real_neighbor);
+                        }
+                    }
+                }
+            }
+        }
+
         let total_abstract_nodes = self.total_lhs_nodes;
 
         // Start the heavy recursive backtracking algorithm at abstract node 1
@@ -165,37 +189,15 @@ impl RewriteRule {
             return true;
         }
 
-        // 2. CANDIDATE GENERATION: Look for an already-mapped neighbor.
-        let mut candidates: HashSet<u64> = HashSet::new();
-        let mut found_anchor = false;
-
-        for edge in &self.lhs_edges {
-            if edge.contains(&current_abstract_id) {
-                // Find an abstract node in this edge that is ALREADY mapped (id < current_abstract_id)
-                for &other_abstract in edge {
-                    if other_abstract < current_abstract_id {
-                        if let Some(&real_id) = state.mapping.get(&other_abstract) {
-                            found_anchor = true;
-                            // Add all real structural neighbors of this mapped node to our candidates
-                            if let Some(edge_ids) = graph.vertex_to_edges.get(&real_id) {
-                                for &e_id in edge_ids {
-                                    if let Some(real_edge) = graph.hyperedges.get(&e_id) {
-                                        for &neighbor_v in &real_edge.vertices {
-                                            candidates.insert(neighbor_v);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // If the rule has disconnected components (rare), we fall back to searching all vertices.
-        let candidate_list: Vec<u64> = if found_anchor {
-            candidates.into_iter().collect()
+        // 2. CANDIDATE GENERATION (VF2 Frontier-Guided):
+        //    If the current abstract node is in the T1 frontier, we restrict the real candidates
+        //    to nodes inside the T2 frontier. This dramatically shrinks the search space.
+        //    Only if the rule has a disconnected component do we fall back to the whole graph.
+        let candidate_list: Vec<u64> = if state.t1_frontier.contains(&current_abstract_id) {
+            // The abstract node is reachable from already-mapped nodes — only check the real frontier
+            state.t2_frontier.iter().copied().collect()
         } else {
+            // Disconnected component fallback: search all unmapped real vertices
             graph.vertices.keys().copied().collect()
         };
 
@@ -214,9 +216,78 @@ impl RewriteRule {
                 }
             }
 
+            // VF2 1-LOOKAHEAD (Frontier Feasibility): Count how many unmapped abstract neighbors
+            // the current abstract node still needs. The real candidate must have at least as many
+            // neighbors inside T2 (the real frontier) to satisfy those future connections.
+            let unmapped_abstract_neighbors: usize = self.lhs_edges.iter()
+                .filter(|edge| edge.contains(&current_abstract_id))
+                .flat_map(|edge| edge.iter())
+                .filter(|&&a_id| a_id != current_abstract_id && !state.mapping.contains_key(&a_id))
+                .collect::<HashSet<_>>()
+                .len();
+
+            if unmapped_abstract_neighbors > 0 {
+                let real_frontier_neighbors: usize = {
+                    let mut count = 0;
+                    if let Some(edge_ids) = graph.vertex_to_edges.get(&real_candidate) {
+                        for &e_id in edge_ids {
+                            if let Some(real_edge) = graph.hyperedges.get(&e_id) {
+                                for &rv in &real_edge.vertices {
+                                    if rv != real_candidate && state.t2_frontier.contains(&rv) {
+                                        count += 1;
+                                        break; // Count each edge once
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    count
+                };
+                if real_frontier_neighbors < unmapped_abstract_neighbors {
+                    continue; // 1-Lookahead rejection
+                }
+            }
+
             // TENTATIVE GUESS: Map the candidate
             state.mapping.insert(current_abstract_id, real_candidate);
             state.used_real_vertices.insert(real_candidate);
+
+            // FRONTIER DELTA: Record which new nodes we add to T2 and T1 so we can undo them.
+            // Also record if real_candidate was in T2 before we removed it (for correct restoration).
+            let was_in_t2 = state.t2_frontier.contains(&real_candidate);
+            let was_in_t1 = state.t1_frontier.contains(&current_abstract_id);
+            let mut t2_delta: Vec<u64> = Vec::new();
+            let mut t1_delta: Vec<usize> = Vec::new();
+
+            // Update T2: Add all unmapped real neighbors of the newly mapped node
+            if let Some(edge_ids) = graph.vertex_to_edges.get(&real_candidate) {
+                for &e_id in edge_ids {
+                    if let Some(real_edge) = graph.hyperedges.get(&e_id) {
+                        for &rv in &real_edge.vertices {
+                            if !state.used_real_vertices.contains(&rv) && !state.t2_frontier.contains(&rv) {
+                                state.t2_frontier.insert(rv);
+                                t2_delta.push(rv);
+                            }
+                        }
+                    }
+                }
+            }
+            // Remove the newly-mapped node from T2 (it's no longer "unmapped frontier")
+            state.t2_frontier.remove(&real_candidate);
+
+            // Update T1: Add all unmapped abstract LHS neighbors of the newly mapped abstract node
+            for edge in &self.lhs_edges {
+                if edge.contains(&current_abstract_id) {
+                    for &a_id in edge {
+                        if a_id != current_abstract_id && !state.mapping.contains_key(&a_id) && !state.t1_frontier.contains(&a_id) {
+                            state.t1_frontier.insert(a_id);
+                            t1_delta.push(a_id);
+                        }
+                    }
+                }
+            }
+            // Remove the newly-mapped abstract node from T1
+            state.t1_frontier.remove(&current_abstract_id);
 
             // 4. VALIDITY CHECK: Do all fully-mapped LHS edges exist in the real graph?
             let mut is_valid = true;
@@ -260,9 +331,24 @@ impl RewriteRule {
                 }
             }
 
-            // 6. BACKTRACK: The guess failed deeper down. Undo it and try the next candidate.
+            // 6. BACKTRACK: The guess failed deeper down. Fully undo all state changes.
             state.mapping.remove(&current_abstract_id);
             state.used_real_vertices.remove(&real_candidate);
+            // Restore T2: remove nodes we added, then restore real_candidate if it was in T2 before.
+            // (It was removed from T2 when we committed the guess.)
+            // Since real_candidate was in the candidate_list derived from T2, it WAS in T2 before.
+            for rv in t2_delta {
+                state.t2_frontier.remove(&rv);
+            }
+            if was_in_t2 {
+                state.t2_frontier.insert(real_candidate); // Restore only if it was there before
+            }
+            for a_id in t1_delta {
+                state.t1_frontier.remove(&a_id);
+            }
+            if was_in_t1 {
+                state.t1_frontier.insert(current_abstract_id); // Restore only if it was there before
+            }
         }
 
         // If we exhaust all candidates and none work, this branch is dead.
@@ -382,6 +468,14 @@ pub struct MatchState {
     
     /// Tracks which real vertices are already part of the match to ensure Injectivity
     pub used_real_vertices: HashSet<u64>,
+
+    /// VF2 Frontier T2: Unmapped real vertices that are adjacent to at least one mapped real vertex.
+    /// This is the "reachable working set" of the real graph.
+    pub t2_frontier: HashSet<u64>,
+
+    /// VF2 Frontier T1 (Abstract): Unmapped abstract nodes adjacent to at least one mapped abstract node.
+    /// This is the "reachable working set" of the abstract LHS rule.
+    pub t1_frontier: HashSet<usize>,
 }
 
 impl MatchState {
@@ -389,6 +483,8 @@ impl MatchState {
         Self {
             mapping: HashMap::new(),
             used_real_vertices: HashSet::new(),
+            t2_frontier: HashSet::new(),
+            t1_frontier: HashSet::new(),
         }
     }
 }
